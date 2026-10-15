@@ -105,6 +105,14 @@ export function measureBeats(ecg: Float32Array, dt: number, i0: number, waves: W
     const lowOn = 0.04 * peak;
     let on = p;
     while (on > 1 && !(D[on] < lowOn && D[on - 1] < lowOn)) on--;
+    // Slow initial upstrokes (e.g. a pre-excitation delta wave) stay below the 4 % slope threshold
+    // although the spatial magnitude G already rises clearly: if G at the slope-based onset is well
+    // above its minimum in the preceding 90 ms (the isoelectric PR segment), move the onset to that minimum.
+    {
+      let kMin = on;
+      for (let k = on; k > Math.max(1, on - Math.round(90 / dt)); k--) if (G[k] < G[kMin]) kMin = k;
+      if ((on - kMin) * dt >= 8 && G[on] - G[kMin] > 0.1) on = kMin;
+    }
     let off = p;
     while (off < n - 2 && !(D[off] < lowOn && D[off + 1] < lowOn && D[off + 2] < lowOn)) off++;
     // Very broad (> 170 ms) complexes: repolarisation can begin before D reaches 4 % (no isoelectric ST). Take the
@@ -272,7 +280,7 @@ export function measureBeats(ecg: Float32Array, dt: number, i0: number, waves: W
         best = w;
       }
     }
-    if (best && bd < 40) {
+    if (best && bd < 60) {
       b.truth = {
         waveId: best.id,
         pOn: Number.isFinite(best.tFirstAtrial) ? best.tFirstAtrial : null,
@@ -305,7 +313,13 @@ function applyRhythmRules(b: BeatMeasurement, w: WaveInfo): void {
       : w.origin === "retrograde"
         ? `echo / re-entrant via ${w.site}`
         : w.origin;
-  if (!(atrialFirst && viaAV && atrialOrigin)) {
+  if (w.origin === "retrograde" || w.origin === "reentry") {
+    if (b.pr !== null) b.notes.push("Re-entrant / echo complex: atrial and ventricular activation belong to one circuit; PR/RP are not auto-measured.");
+    b.pr = null;
+    b.pOn = null;
+    b.pOff = null;
+    b.axisP = null;
+  } else if (!(atrialFirst && viaAV && atrialOrigin)) {
     if (b.pr !== null) b.notes.push("No P–QRS relationship for this complex (not conducted from a preceding P): PR not reported.");
     b.pr = null;
     b.pOn = null;
