@@ -2,7 +2,7 @@
 
 Run on the Phase 2 code base (headless Chromium 1194 for end-to-end tests).
 
-## Unit / physiology (`npx vitest run`): 79 / 79 passed
+## Unit / physiology (`npx vitest run`): 75 / 75 passed
 
 | File | Tests | Covers |
 |---|---|---|
