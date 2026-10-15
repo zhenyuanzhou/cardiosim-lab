@@ -1,4 +1,5 @@
 import { sim, useStore } from "../../state/store";
+import { APP_VERSION, RELEASE_DATE } from "../../version";
 
 export function AboutPanel({ buildMs }: { buildMs: number }) {
   useStore((s) => s.shownTime);
@@ -6,25 +7,25 @@ export function AboutPanel({ buildMs }: { buildMs: number }) {
   return (
     <>
       <div className="card">
-        <h4>What this is</h4>
+        <h4>What this is · version {APP_VERSION} ({RELEASE_DATE})</h4>
         <p>
           CardioSim Lab links cellular action potentials, spatial activation of an idealised heart and a forward-computed 12-lead ECG through one causal simulation on one clock. Changing a parameter changes the simulated electrophysiology; the ECG is recomputed from it, never looked up.
         </p>
         <p className="note">For research education and concept demonstration only. It is not a clinically validated diagnostic system, not a patient-specific model, and does not predict clinical drug effects.</p>
       </div>
       <div className="card">
-        <h4>How the model works (Phase 1)</h4>
+        <h4>How the model works</h4>
         <dl className="kv">
           <dt>Level 1</dt>
           <dd>Conduction network: SA node automaticity with autonomic modulation, directional AV node with recovery-dependent delay (Sun et al. 1995 form), His bundle, bundle branches, fascicles, Purkinje networks, latent junctional/ventricular pacemakers with overdrive reset.</dd>
           <dt>Level 2</dt>
           <dd>Voxelised atria and ventricles (2.5 mm grid) with fibre-based anisotropic conduction, refractoriness and CV restitution; event-driven propagation.</dd>
           <dt>Cells</dt>
-          <dd>Reduced-order action-potential waveforms anchored to activation time and APD90; APD restitution from the Mitchell–Schaeffer map fitted to human in-vivo data (Franz 1988).</dd>
+          <dd>Reduced-order action-potential waveforms anchored to activation time and APD90; two-component APD restitution (steady-state slope fitted to human in-vivo data, Franz 1988; nominal fast recovery term and cycle-length memory).</dd>
           <dt>ECG</dt>
           <dd>Lead field of the impressed current −σi∇Vm: infinite-medium potentials at V1–V6, Einthoven lead vectors for limb electrodes, Wilson central terminal, Goldberger leads.</dd>
           <dt>Level 3</dt>
-          <dd>Ionic models (IKr, ICaL, INa…), EADs/DADs and drug-like perturbations are planned for Phase 4 and are not yet available.</dd>
+          <dd>ten Tusscher–Panfilov 2006 ventricular cell model in the Ionic cell tab (single cells; results mapped onto the tissue as APD/CV scaling). Re-entry (AVNRT, AVRT, flutter, AF) emerges from the tissue graph and lumped AV links. Ionic tissue coupling, EAD-driven arrhythmias, VF and scar VT are not available — see the scenario registry.</dd>
         </dl>
       </div>
       <div className="card">
