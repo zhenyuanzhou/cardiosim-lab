@@ -23,18 +23,22 @@ npm run dev          # opens http://localhost:5173
 | `npm run dev` | Development server with hot reload |
 | `npm run build` | Type-check and build a static site in `dist/` (serve with `npm run preview`) |
 | `npm run build:standalone` | Build one self-contained HTML file in `dist-standalone/index.html` |
-| `npm test` | 38 physiology / simulation / ECG unit tests (Vitest, about 2–3 min) |
-| `npm run test:e2e` | 7 browser tests (Playwright). First time: `npx playwright install chromium` |
+| `npm test` | 72 physiology / scenario / ionic / ECG unit tests (Vitest, about 5 min) |
+| `npm run test:e2e` | 17 browser tests (Playwright). First time: `npx playwright install chromium` |
 | `npm run validate` | Prints a baseline report: ECG-measured intervals vs model timings vs references |
 
 ## Using the app
 
-| Panel | Contents |
+Four **modes** (top bar):
+
+| Mode | Contents |
 |---|---|
-| **A · Activation** | 3-D voxel heart. Colour by membrane potential, activation isochrones (10 ms bands) or refractory state. Drag to rotate, shift-drag to pan, wheel to zoom. AP/LL/INF views, cut-away, layer toggles. Click any cell to add its AP to Panel B. |
-| **B · Action potentials** | SA node, atrium, AV node, His, LV endo/epi and other cells on one time axis with lead II. Shows phase 0–4 labels, APD90 bar and ERP marker. |
-| **C · 12-lead ECG** | Standard 3×4 + rhythm-strip layout or selected leads. 25/50 mm/s, 5/10/20 mm/mV, 500/1000 Hz. Calipers, *Inspect* (click the ECG to freeze time and see what the heart is doing), and SVG/PNG/CSV export. Below it: signal-derived measurements next to the model's own timings, and the causal event log with simulator timestamps. |
-| **D · Controls** | Scenarios, searchable parameters with units, reference values, evidence tags and "why?" notes, explanations of each change with measured before/after effects, the validation dashboard, the A/B overlay, and an About page. |
+| **Simulator** | **A · Anatomy & activation:** smooth 3-D heart with toggleable layers (anatomy, major conduction pathways, activation, repolarisation, refractoriness, vectors, tissue mesh), presets for anterior, posterior, left-lateral and superior views, and click-to-select. Great vessels are shown for orientation only. **B · Action potentials:** reduced-order APs for selected cells. **C · 12-lead ECG:** 3×4 + rhythm strip (6×2 on narrow screens) or selected leads; calipers, Inspect and SVG/PNG/CSV export; measurements next to model truth; a causal event log (click an event to highlight the structure and read what it means). **D · Controls:** Scenarios (registry with implementation status), Parameters, Explain, Lessons, **Ionic cell** (TP06), Validation, A/B and About. |
+| **Leads & Vectors** | Torso with RA/LA/LL/RL and V1–V6 electrodes; lead axes (solid = positive half), wiring to the Wilson central terminal, projection bar, optional lead-field proximity map; hexaxial frontal plane with QRS loop and measured axis; horizontal plane with the effective chest-lead vector and its R². Compare up to three leads. The **Experiments** menu runs A–F. |
+| **Split view** | Heart, torso, frontal vector, ECG strip, action potentials and the current electrical event, all on one clock. |
+| **A/B** | Two parameter sets simulated from t = 0 and animated side by side, with an ECG overlay at identical scaling and the list of differences. |
+
+Panels can be resized by dragging the dividers and maximised with ⤢ (Esc restores). **Present** switches to full-screen with larger type.
 
 **Keyboard.** Space play/pause · ← → step 20 ms · [ ] previous/next beat.
 
@@ -42,15 +46,17 @@ npm run dev          # opens http://localhost:5173
 
 **Save/Load.** Scenarios are JSON files containing the full parameter set and sampling rate.
 
-## What is and is not simulated (Phase 1)
+## What is and is not simulated
 
-| Simulated | Reduced-order | Not yet |
+| Mechanistic or reduced-order and runnable | Partial | Not supported (labelled, not runnable) |
 |---|---|---|
-| Activation sequence, conduction delay/block, refractoriness, overdrive reset, rate-dependent AV conduction, ECG timing | Action-potential shapes, APD restitution, AV node, ECG amplitudes, idealised anatomy | Ionic currents, EAD/DAD, reentry/AF/VT/VF, accessory pathways, ischaemia, drugs (Phases 2–5) |
+| Sinus rhythm and rate changes, sinus arrest, SA exit block, 1° AV block, Mobitz I and II, 2:1 and complete AV block with escape rhythms, PACs, PVCs (compensatory and interpolated), bigeminy, trigeminy, couplets, focal AT, AVNRT, orthodromic and antidromic AVRT, pre-excitation, BBB (morphology incomplete) | Focal VT (automaticity imposed); IKr inhibition, short QT, hyper-/hypokalaemia, Na⁺ and Ca²⁺ channel block via the TP06 ionic cell model mapped to tissue APD/CV | Atrial flutter, AF, scar VT, polymorphic VT, TdP, VF, hyper-/hypocalcaemia, EAD/DAD propagation, drug-specific arrhythmias |
 
-The details are in `docs/FIDELITY_MATRIX.md`. The baseline (default parameters, measured from the simulated ECG) is HR 66, PR 156 ms, QRS 84 ms, QT 372 ms, QTc 390 ms and QRS axis +18°; the model gives AH 65 ms and HV 41 ms.
+The status of every scenario is in `docs/scenario-registry.json`; limitations are in `SCIENTIFIC_LIMITATIONS.md`. The details are in `docs/FIDELITY_MATRIX.md`. The baseline (default parameters, measured from the simulated ECG) is HR 66, PR 156 ms, QRS 84 ms, QT 372 ms, QTc 390 ms and QRS axis +18°; the model gives AH 65 ms and HV 41 ms.
 
 ## Documentation
+- `DEVELOPMENT_STATUS.md`, `IMPLEMENTATION_BACKLOG.md`, `SCIENTIFIC_LIMITATIONS.md`, `TEST_RESULTS.md`, `NEXT_SESSION.md`
+- `docs/scenario-registry.json`: machine-readable scenario status (regenerate with `npx tsx scripts/export-registry.ts`)
 - `docs/ARCHITECTURE.md`: layered model, runtime architecture, folder/module structure
 - `docs/FIDELITY_MATRIX.md`: fidelity levels, output classes, limitations
 - `docs/PARAMETER_DEPENDENCIES.md`: causal graph, defaults with evidence tags, planned parameters

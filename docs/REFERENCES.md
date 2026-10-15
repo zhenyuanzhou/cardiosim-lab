@@ -35,3 +35,10 @@ Each entry says what the model uses it for. Entries with a DOI were checked agai
 ## Values without a direct source
 
 Every parameter tagged `nominal` in the app, and the scalar torso transfer factors, are teaching or modelling choices. They are not measurements. This covers the autonomic coefficients, AV nodal recovery amplitude/τ/ERP, bundle and Purkinje CVs, PMJ delay, anisotropy ratio, ERP/APD ratios, smoothing radius, the APD floor and CV restitution.
+
+## Phase 2 additions
+- ten Tusscher KHWJ, Panfilov AV. Alternans and spiral breakup in a human ventricular tissue model. Am J Physiol Heart Circ Physiol 2006;291:H1088–H1100. doi:10.1152/ajpheart.00109.2006 — TP06 equations as distributed in cbcbeat (gotran/CellML translation).
+- Bartolucci C, Passini E, Hyttinen J, Paci M, Severi S. Simulation of the effects of extracellular calcium changes leads to a novel computational model of human ventricular action potential with a revised calcium handling. Front Physiol 2020;11:314. doi:10.3389/fphys.2020.00314 — most human AP models (including ORd) fail to reproduce the inverse APD–[Ca²⁺]o dependence; the basis for marking calcium disorders unsupported.
+- Sun J, Amellal F, Glass L, Billette J. Alternans and period-doubling bifurcations in atrioventricular nodal conduction. J Theor Biol 1995;173:79–91 — AV-nodal recovery term reused for the slow pathway.
+- Cable-theory relation CV ∝ √(dV/dt_max) used for the ionic→tissue CV mapping is an approximation (uniform fibre); no numerical calibration to human data is claimed.
+- Accessory-pathway, slow-pathway and ectopy parameters are nominal (no data source); they are chosen to demonstrate mechanisms.

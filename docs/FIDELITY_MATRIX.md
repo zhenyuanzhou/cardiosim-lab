@@ -48,3 +48,16 @@
 - Phenomenological waveform adjustments are never labelled as mechanistic simulations.
 - Each scenario carries a fidelity label and a status: validated baseline, preview, or planned.
 - No clinical validation is claimed. Literature values are cited only where they were checked (see `REFERENCES.md`). Every other value is tagged `nominal`.
+
+## Phase 2 additions
+
+| Component | Fidelity | Notes |
+|---|---|---|
+| Ectopic foci (coupled patterns, protected focus) | L1/L2 mechanistic timing; automaticity imposed | Capture depends on local refractoriness |
+| Concealed retrograde AV-nodal conduction | L1 reduced-order | Penetration resets nodal recovery without atrial activation |
+| AV-nodal dual pathways, accessory pathways | L1 lumped links | Collision handling; re-entry is emergent (AVNRT, AVRT) |
+| Infra-Hisian block, BBB/fascicular block flags | L1/L2 mechanistic | Blocked segments have infinite conduction delay |
+| Re-entry bookkeeping | Engine | A wave re-exciting tissue it already activated spawns a child wave (beat-level measurements) |
+| TP06 ventricular myocyte | L3 ionic, single cell | Mapped to tissue only as APD/CV scales (reduced-order bridge) |
+| 3-D anatomy | Illustration of the simulated geometry | Surface nets from the analytic anatomy; great vessels decorative |
+| Torso / electrodes | Geometry of the forward model | Limb electrodes drawn at wrists/ankles; forward model uses Einthoven lead vectors |

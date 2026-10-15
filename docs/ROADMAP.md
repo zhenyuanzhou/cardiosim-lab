@@ -40,3 +40,6 @@ Priorities, in order:
 
 - Three.js surface anatomy (or an image-derived mesh), a better forward model (BEM torso with lungs) and regional ischaemia/injury currents.
 - Scar and fibrosis editing, cardiac pacing and capture, expanded pharmacology, and Brugada/CPVT demonstrations.
+
+## Phase 2 (delivered)
+Milestones M1–M6 — see `DEVELOPMENT_STATUS.md`. Next priorities are in `IMPLEMENTATION_BACKLOG.md`.
