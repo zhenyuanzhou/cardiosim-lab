@@ -148,7 +148,9 @@ export function ABView() {
     const tick = (now: number) => {
       const dtw = Math.min(100, now - last);
       last = now;
-      if (playing) {
+      const ov = (window as unknown as { __cardiosim?: { abTime?: number } }).__cardiosim?.abTime;
+      if (ov !== undefined) clockRef.current = ov;
+      else if (playing) {
         clockRef.current += dtw * speed;
         if (clockRef.current > T1) clockRef.current = T0;
       }
