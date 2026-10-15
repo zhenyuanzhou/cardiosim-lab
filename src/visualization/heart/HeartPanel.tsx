@@ -72,8 +72,24 @@ export function HeartPanelBody() {
             Selected: <b>{sel}</b> · its action potential is shown in Panel B
           </div>
         )}
+        <EventNote />
         <div className="heart-hint">drag rotate · right-drag pan · wheel zoom · click a structure</div>
       </div>
+    </div>
+  );
+}
+
+/** Explanation of the clicked timeline event (structure highlighted in the 3-D view). */
+export function EventNote() {
+  const hl = useStore((s) => s.highlight);
+  const set = useStore((s) => s.set);
+  if (!hl) return null;
+  return (
+    <div className="event-note" role="status" data-testid="event-note">
+      <button className="linkbtn" style={{ float: "right" }} onClick={() => set({ highlight: null })} aria-label="Clear highlight">
+        ✕
+      </button>
+      {hl.label}
     </div>
   );
 }

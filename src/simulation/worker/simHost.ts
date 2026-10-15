@@ -167,7 +167,7 @@ export class SimHost {
       const s = new Simulator(model, p, this.W ?? undefined, dt);
       s.run(duration);
       const o = s.drain();
-      return { ecg: o.ecg, beats: measureBeats(o.ecg, dt, 0, o.waves), recT: o.recT, recNode: o.recNode, recApd: o.recApd };
+      return { ecg: o.ecg, beats: measureBeats(o.ecg, dt, 0, o.waves), recT: o.recT, recNode: o.recNode, recApd: o.recApd, recWave: o.recWave, waves: o.waves };
     };
     const ra = runOne(a);
     const rb = runOne(b);

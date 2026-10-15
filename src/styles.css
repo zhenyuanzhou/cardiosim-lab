@@ -401,3 +401,19 @@ details.group > summary { cursor: pointer; padding: 6px 8px; font: 600 12px/1.2 
   .explorer-body .split-cell { flex: 0 0 auto !important; min-height: 340px; }
   .explorer-body .split-handle { display: none; }
 }
+
+.ab-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0, 1.25fr) minmax(0, 1fr) auto; gap: 8px; padding: 8px; }
+.ab-grid .ab-wide { grid-column: 1 / -1; }
+.ab-grid > .panel:last-child { max-height: 160px; }
+.ab-tag { position: absolute; left: 10px; top: 10px; font: 700 20px/1 var(--font-display); border: 2px solid; border-radius: 6px; padding: 3px 9px; background: color-mix(in srgb, var(--panel) 80%, transparent); }
+@media (max-width: 1100px) { .ab-grid { grid-template-columns: 1fr; grid-auto-rows: minmax(320px, auto); } }
+.event-note { position: absolute; left: 8px; right: 8px; top: 8px; max-width: 520px; font-size: 12.5px; background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--info); border-left: 3px solid var(--info); border-radius: var(--radius); padding: 6px 8px; z-index: 3; }
+/* narrow / stacked layout: size the ECG to its content instead of a fixed panel height */
+.stack > .panel-ecg { min-height: 0; }
+.stack .ecg-stack { height: auto; }
+.stack .ecg-canvas { flex: none; min-height: 0; }
+.stack .ecg-canvas.mode-12lead { aspect-ratio: 250 / 170; }
+.stack .ecg-canvas.mode-leads { height: 60vh; }
+.stack .ecg-lower { flex: none; }
+.stack .panel-body { overflow: visible; }
+@media (min-width: 760px) { .stack .ecg-canvas.mode-12lead { aspect-ratio: 250 / 172; } }

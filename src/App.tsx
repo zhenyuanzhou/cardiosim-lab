@@ -13,6 +13,7 @@ import { LessonsPanel } from "./components/education/LessonsPanel";
 import { IonicLab } from "./components/education/IonicLab";
 import { ExplorerView } from "./visualization/explorer/ExplorerView";
 import { SplitView } from "./visualization/explorer/SplitView";
+import { ABView } from "./visualization/compare/ABView";
 import { Panel } from "./components/layout/Panel";
 import { Split } from "./components/layout/Split";
 import { seek } from "./visualization/frameLoop";
@@ -34,6 +35,7 @@ const MODES: [Mode, string, string][] = [
   ["simulator", "Simulator", "Cardiac anatomy & activation with APs, 12-lead ECG and controls"],
   ["explorer", "Leads & Vectors", "Torso, electrodes, lead geometry, heart vector and projections"],
   ["split", "Split view", "Synchronised educational view: heart, torso, lead, APs, vector, explanation"],
+  ["ab", "A/B", "Side-by-side comparison of two parameter sets on one clock"],
 ];
 
 function useNarrow(px = 1100) {
@@ -310,7 +312,7 @@ export default function App() {
         </div>
       )}
 
-      {st.mode === "simulator" ? <SimulatorLayout buildMs={buildMs} /> : st.mode === "explorer" ? <ExplorerView /> : <SplitView />}
+      {st.mode === "simulator" ? <SimulatorLayout buildMs={buildMs} /> : st.mode === "explorer" ? <ExplorerView /> : st.mode === "ab" ? <ABView /> : <SplitView />}
     </div>
   );
 }

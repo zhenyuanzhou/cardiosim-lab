@@ -23,6 +23,16 @@ export interface ModelMeta {
   frame: { axis: number[]; septalDir: number[]; anteriorDir: number[] };
 }
 
+export interface CompareRun {
+  ecg: Float32Array;
+  beats: BeatMeasurement[];
+  recT: Float64Array;
+  recNode: Int32Array;
+  recApd: Float32Array;
+  recWave: Int32Array;
+  waves: WaveInfo[];
+}
+
 export type ToWorker =
   | { type: "init"; params: SimParams; dt: number }
   | { type: "extend"; until: number; epoch: number }
@@ -47,7 +57,7 @@ export type FromWorker =
       type: "compareResult";
       requestId: number;
       dt: number;
-      a: { ecg: Float32Array; beats: BeatMeasurement[]; recT: Float64Array; recNode: Int32Array; recApd: Float32Array };
-      b: { ecg: Float32Array; beats: BeatMeasurement[]; recT: Float64Array; recNode: Int32Array; recApd: Float32Array };
+      a: CompareRun;
+      b: CompareRun;
     }
   | { type: "error"; message: string };

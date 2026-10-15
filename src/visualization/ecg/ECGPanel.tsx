@@ -180,7 +180,7 @@ export function ECGPanel() {
           )}
         </div>
       )}
-      <div className="ecg-canvas">
+      <div className={`ecg-canvas mode-${st.ecgLayout}`}>
         <canvas ref={ref} className="fill" onClick={onClick} style={{ cursor: "crosshair" }} aria-label="Simulated 12-lead ECG" data-testid="ecg-canvas" />
         {inspect && st.inspectT !== null && (
           <div className="inspect" role="status" data-testid="inspect-box">

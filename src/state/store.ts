@@ -15,7 +15,7 @@ export const sim = new SimClient();
  */
 export const clock = { t: 0, lastWall: 0 };
 
-export type Mode = "simulator" | "explorer" | "split";
+export type Mode = "simulator" | "explorer" | "split" | "ab";
 export interface TorsoLayers {
   torso: boolean;
   electrodes: boolean;

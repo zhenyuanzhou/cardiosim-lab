@@ -53,6 +53,35 @@ export function layoutEcg(o: EcgViewOpts, t: number): EcgLayout {
   const padT = 4;
   const availW = o.width - padL - 6;
   const availH = o.height - padT - 18;
+  if (o.mode === "12lead" && availW < 700) {
+    // narrow screens: 6 × 2 format (limb leads left = first half page, chest leads right = second half)
+    const pageDur = o.paperSpeed === 25 ? 10000 : 5000;
+    const half = pageDur / 2;
+    const mmW = (half / 1000) * o.paperSpeed * 2; // two columns
+    const rowMm = 25;
+    const pxPerMm = Math.max(1, Math.min(availW / mmW, availH / (rowMm * 6)));
+    const plotW = mmW * pxPerMm;
+    const rowH = rowMm * pxPerMm;
+    const pageStart = Math.floor(t / pageDur) * pageDur;
+    const strips: Strip[] = [];
+    const LEFT = ["I", "II", "III", "aVR", "aVL", "aVF"];
+    const RIGHT = ["V1", "V2", "V3", "V4", "V5", "V6"];
+    for (let c = 0; c < 2; c++)
+      (c === 0 ? LEFT : RIGHT).forEach((name, r) =>
+        strips.push({
+          lead: idx(name),
+          label: name,
+          x: padL + (c * plotW) / 2,
+          w: plotW / 2,
+          top: padT + r * rowH,
+          h: rowH,
+          base: padT + r * rowH + rowH * 0.55,
+          t0: pageStart + c * half,
+          t1: pageStart + (c + 1) * half,
+        }),
+      );
+    return { pxPerMm, plotX: padL, plotY: padT, plotW, plotH: rowH * 6, strips, pageStart, pageDur };
+  }
   if (o.mode === "12lead") {
     const pageDur = o.paperSpeed === 25 ? 10000 : 5000;
     const mmW = (pageDur / 1000) * o.paperSpeed; // 250 mm
@@ -205,15 +234,18 @@ export function drawEcg(
       if (extra?.calipers && o.mode === "leads")
         for (const c of extra.calipers) if (c >= s.t0 && c <= s.t1) p.line([X(c), s.top, X(c), s.top + s.h], col.cursor, 1.2);
     });
-    p.text(s.x + 4, s.top + 13, s.label, col.label, "600 12px IBM Plex Sans, system-ui, sans-serif");
+    const fs = Math.round(Math.max(13, Math.min(18, s.h * 0.16)));
+    const lx = s.x + 5 + (s.x <= 7 ? 7 * L.pxPerMm : 0); // first column: keep clear of the 1 mV calibration pulse
+    p.text(lx, s.top + fs + 3, s.label, col.label, `700 ${fs}px IBM Plex Sans, system-ui, sans-serif`);
     // sweep cursor
     if (t >= s.t0 && t <= s.t1) p.line([X(t), s.top, X(t), s.top + s.h], col.cursor, 1.4);
   }
   // column separators in 12-lead mode
   if (o.mode === "12lead") {
-    for (let c = 1; c < 4; c++) {
-      const x = L.plotX + (c * L.plotW) / 4;
-      p.line([x, L.plotY, x, L.plotY + (L.plotH * 3) / 4], col.label, 1);
+    const nCol = L.strips.length === 12 ? 2 : 4;
+    for (let c = 1; c < nCol; c++) {
+      const x = L.plotX + (c * L.plotW) / nCol;
+      p.line([x, L.plotY, x, L.plotY + (nCol === 2 ? L.plotH : (L.plotH * 3) / 4)], col.label, 1);
     }
   }
   const info = `${o.paperSpeed} mm/s · ${o.gain} mm/mV · ${(1000 / data.dt).toFixed(0)} Hz · page ${(L.pageStart / 1000).toFixed(1)}–${((L.pageStart + L.pageDur) / 1000).toFixed(1)} s`;
