@@ -24,7 +24,7 @@ export interface TorsoLayers {
   heart: boolean;
   sensitivity: boolean;
 }
-export type Tab = "scenarios" | "parameters" | "explain" | "lessons" | "events" | "validation" | "compare" | "about";
+export type Tab = "scenarios" | "parameters" | "explain" | "lessons" | "ionic" | "events" | "validation" | "compare" | "about";
 export type CompareResult = Extract<FromWorker, { type: "compareResult" }> & { a_params: SimParams; b_params: SimParams };
 
 export interface UIState {

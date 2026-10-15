@@ -79,6 +79,49 @@ const unsupported = (id: string, name: string, group: Scenario["group"], needs: 
   leads: [],
 });
 
+
+/**
+ * TP06 → tissue mappings (APD scale, CV scale), derived by pacing TP06 epi/M/endo cells at
+ * CL 1000 ms for 30 beats (src/simulation/cellular/ionicMapping.ts; checked by
+ * tests/physiology/ionic.test.ts, which recomputes them from the cell model).
+ */
+export const TP06_MAPPED: Record<string, { mods: Record<string, number>; apdScale: number; cvScale: number }> = {
+  ikr50: { mods: { gKr: 0.5 }, apdScale: 1.085, cvScale: 1.0 },
+  ikr90: { mods: { gKr: 0.1 }, apdScale: 1.173, cvScale: 1.0 },
+  ikr200: { mods: { gKr: 2 }, apdScale: 0.872, cvScale: 1.0 },
+  ko8: { mods: { Ko: 8 }, apdScale: 0.971, cvScale: 0.657 },
+  ko3: { mods: { Ko: 3 }, apdScale: 1.044, cvScale: 1.111 },
+  na50: { mods: { gNa: 0.5 }, apdScale: 1.004, cvScale: 0.785 },
+  cal50: { mods: { gCaL: 0.5 }, apdScale: 0.771, cvScale: 1.011 },
+};
+
+function ionic(id: string, name: string, change: string, key: string, mechanism: string, ecg: string, limits: string): Scenario {
+  const m = TP06_MAPPED[key];
+  return {
+    id,
+    name,
+    group: "E · Ionic/drug",
+    status: "partial",
+    modelClass: "reduced-order",
+    criteria: { ...ALL, mechanism: false },
+    mechanism: `${mechanism} Simulated with the TP06 ionic cell model (Ionic cell tab); the tissue receives APD × ${m.apdScale} and ventricular CV × ${m.cvScale}.`,
+    structures: "Ventricular myocytes (ionic model) → ventricular tissue (reduced-order).",
+    changes: `${change} in TP06; tissue: ventricular APD and gradients × ${m.apdScale}, longitudinal CV × ${m.cvScale}.`,
+    activation: m.cvScale < 0.95 ? "Slower ventricular activation." : "Unchanged activation sequence.",
+    ecg,
+    initiation: "Immediate.",
+    limitations: `Partial: ionic currents act in single cells only; tissue sees scaled APD/CV. ${limits}`,
+    validation: T(`TP06 mapping ${key}`),
+    leads: ["II", "V2", "V5"],
+    apply: P((p) => {
+      p.ventricles.apd = Math.round(p.ventricles.apd * m.apdScale);
+      p.ventricles.transmuralGradient = Math.round(p.ventricles.transmuralGradient * m.apdScale);
+      p.ventricles.apicobasalGradient = Math.round(p.ventricles.apicobasalGradient * m.apdScale);
+      p.ventricles.cvLongitudinal = +(p.ventricles.cvLongitudinal * m.cvScale).toFixed(3);
+    }),
+  };
+}
+
 export const SCENARIOS: Scenario[] = [
   // ---------------------------------------------------------------- Baseline
   {
@@ -568,32 +611,30 @@ export const SCENARIOS: Scenario[] = [
     apply: P((p) => (p.hisPurkinje.lbbBlock = true)),
   },
   // ---------------------------------------------------------------- Group E
-  {
-    id: "ikr-proxy",
-    name: "Reduced repolarising current (IKr-block proxy, long QT pattern)",
-    group: "E · Ionic/drug",
-    status: "partial",
-    modelClass: "reduced-order",
-    criteria: { ...ALL, mechanism: false },
-    mechanism: "Ventricular APD is prolonged uniformly (reduced-order stand-in for reduced IKr); no ionic current is simulated in tissue.",
-    structures: "Ventricular myocardium.",
-    changes: "Reference ventricular APD 300 → 380 ms.",
-    activation: "Unchanged.",
-    ecg: "Longer QT and QTc with unchanged QRS.",
-    initiation: "Immediate.",
-    limitations: "Not an ionic model: no rate-dependence specific to IKr block, no EADs, no transmural differential effect. See the ionic single-cell lab (TP06) for the cellular mechanism.",
-    validation: T("APD prolongation lengthens QT"),
-    leads: ["II", "V5"],
-    apply: P((p) => (p.ventricles.apd = 380)),
-  },
-  unsupported("short-qt", "Short QT", "E · Ionic/drug", "IKr/IKs gain-of-function in an ionic tissue model (a uniform APD reduction would only be a proxy)."),
-  unsupported("hyperk", "Hyperkalaemia", "E · Ionic/drug", "extracellular K⁺ effects on resting potential, Na⁺ availability (conduction slowing) and IK1/IKr (peaked T) in tissue — requires the ionic tissue layer."),
-  unsupported("hypok", "Hypokalaemia", "E · Ionic/drug", "the ionic tissue layer (reduced IK1/IKr, U waves are not representable)."),
-  unsupported("hyperca", "Hypercalcaemia", "E · Ionic/drug", "the ionic tissue layer (ICaL inactivation → shorter plateau / ST)."),
-  unsupported("hypoca", "Hypocalcaemia", "E · Ionic/drug", "the ionic tissue layer (longer plateau / ST)."),
-  unsupported("na-block", "Sodium-channel blockade", "E · Ionic/drug", "use-dependent INa block coupled to conduction velocity in tissue (planned: CV scaling from the ionic model's Na availability)."),
-  unsupported("ca-block", "Calcium-channel blockade", "E · Ionic/drug", "nodal ICaL-dependent conduction (AV node) and plateau effects — the AV node is a lumped link without ionic currents."),
-  unsupported("ead-dad", "EAD / DAD triggered activity", "E · Ionic/drug", "ionic tissue coupling; EADs can be inspected only in the single-cell ionic model (not propagated)."),
+  ionic("ikr-50", "IKr inhibition 50 % (long-QT pattern)", "gKr × 0.5", "ikr50",
+    "Reduced rapid delayed-rectifier current slows phase-3 repolarisation; the M cell (low IKs) prolongs most.",
+    "Longer QT/QTc with unchanged QRS.", "No EADs/torsades; the M-cell layer is not represented in tissue, so transmural dispersion is under-represented."),
+  ionic("ikr-90", "IKr inhibition 90 %", "gKr × 0.1", "ikr90",
+    "Near-complete IKr block (e.g. high-dose hERG blocker): strong APD prolongation.",
+    "Marked QT prolongation with unchanged QRS.", "As above; TP06 produced no EADs under these conditions, so torsades cannot arise."),
+  ionic("short-qt", "IKr gain of function (short-QT pattern)", "gKr × 2", "ikr200",
+    "Increased IKr accelerates repolarisation (as in SQTS type 1, simplified as a conductance increase).",
+    "Shorter QT; QRS unchanged.", "SQTS1 alters IKr inactivation kinetics, not just conductance."),
+  ionic("hyperk", "Hyperkalaemia ([K⁺]o 8 mM)", "Ko 5.4 → 8 mM", "ko8",
+    "Raised [K⁺]o depolarises the resting membrane (−85 → −75 mV), inactivating Na⁺ channels → slower upstroke and conduction.",
+    "QRS widening (via CV), modest QT change.", "Peaked T waves (faster repolarisation) are not transferred because tissue AP shape is fixed; atrial and AV-nodal effects not mapped."),
+  ionic("hypok", "Hypokalaemia ([K⁺]o 3 mM)", "Ko 5.4 → 3 mM", "ko3",
+    "Lower [K⁺]o hyperpolarises the cell and reduces IKr/IK1 conductance (√Ko dependence) → longer APD.",
+    "Mild QT prolongation.", "U waves and T flattening are not representable; increased Na⁺ availability slightly speeds conduction in the mapping."),
+  ionic("na-block", "Sodium-channel blockade (INa −50 %)", "gNa × 0.5", "na50",
+    "Fewer available Na⁺ channels reduce dV/dt_max and conduction velocity.",
+    "QRS widening; QT prolongs only by the QRS increase.", "Use-dependence (rate-dependent block) is not modelled; atrial/His–Purkinje effects not mapped."),
+  ionic("ca-block", "L-type Ca²⁺-channel blockade (ICaL −50 %)", "gCaL × 0.5", "cal50",
+    "Reduced plateau current shortens the ventricular APD.",
+    "Shorter QT.", "The dominant clinical effect (AV-nodal slowing) is not modelled because the AV node is a lumped link without ionic currents."),
+  unsupported("hyperca", "Hypercalcaemia", "E · Ionic/drug", "a cell model whose APD shortens with raised [Ca²⁺]o. TP06 predicts the opposite direction (longer APD), contradicting the clinical QT–calcium relationship, so the result would be misleading."),
+  unsupported("hypoca", "Hypocalcaemia", "E · Ionic/drug", "as for hypercalcaemia (TP06 shortens rather than prolongs APD at low [Ca²⁺]o)."),
+  unsupported("ead-dad", "EAD / DAD triggered activity", "E · Ionic/drug", "an EAD-capable cell model coupled to tissue. TP06 produced no EADs for IKr 0–10 %, ICaL ×1.5–2, IKs ×0.5 at CL 2000 ms (scripts/dev), and tissue coupling of ionic models is not implemented."),
   unsupported("drug-arrhythmia", "Selected drug-induced arrhythmias", "E · Ionic/drug", "validated drug-channel block parameters and an ionic tissue model."),
 ];
 

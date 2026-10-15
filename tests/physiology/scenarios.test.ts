@@ -227,14 +227,6 @@ describe("Bundle branch block", () => {
   });
 });
 
-describe("Group E — ionic/drug (reduced-order)", () => {
-  it("APD prolongation lengthens QT", () => {
-    const q = (id: string) => median(sc(id).beats.slice(1, -1).map((b) => b.qt!));
-    expect(q("ikr-proxy") - q("nsr")).toBeGreaterThan(50);
-    expect(Math.abs(median(sc("ikr-proxy").beats.map((b) => b.qrs)) - median(nsr().beats.map((b) => b.qrs)))).toBeLessThanOrEqual(4);
-  });
-});
-
 describe("registry consistency", () => {
   it("validated scenarios meet all eight criteria and every runnable scenario names its validation", () => {
     for (const s of SCENARIOS) {

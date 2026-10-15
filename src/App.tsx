@@ -10,6 +10,7 @@ import { ValidationPanel } from "./components/measurements/ValidationPanel";
 import { ComparePanel, CompareView } from "./components/controls/ComparePanel";
 import { AboutPanel } from "./components/education/AboutPanel";
 import { LessonsPanel } from "./components/education/LessonsPanel";
+import { IonicLab } from "./components/education/IonicLab";
 import { ExplorerView } from "./visualization/explorer/ExplorerView";
 import { SplitView } from "./visualization/explorer/SplitView";
 import { Panel } from "./components/layout/Panel";
@@ -23,6 +24,7 @@ const TABS: [Tab, string][] = [
   ["parameters", "Parameters"],
   ["explain", "Explain"],
   ["lessons", "Lessons"],
+  ["ionic", "Ionic cell"],
   ["validation", "Validation"],
   ["compare", "A/B"],
   ["about", "About"],
@@ -68,6 +70,8 @@ export function ControlRack({ buildMs }: { buildMs: number }) {
           <ExplainPanel />
         ) : st.tab === "lessons" ? (
           <LessonsPanel />
+        ) : st.tab === "ionic" ? (
+          <IonicLab />
         ) : st.tab === "validation" ? (
           <ValidationPanel />
         ) : st.tab === "compare" ? (

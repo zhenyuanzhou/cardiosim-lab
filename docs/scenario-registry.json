@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-15T15:26:01.868Z",
+  "generated": "2026-10-15T15:33:43.765Z",
   "statusClasses": [
     "validated",
     "incomplete",
@@ -691,8 +691,8 @@
       "validation": "Automated test: \"LBBB\" (tests/physiology/scenarios.test.ts)."
     },
     {
-      "id": "ikr-proxy",
-      "name": "Reduced repolarising current (IKr-block proxy, long QT pattern)",
+      "id": "ikr-50",
+      "name": "IKr inhibition 50 % (long-QT pattern)",
       "group": "E · Ionic/drug",
       "status": "partial",
       "modelClass": "reduced-order",
@@ -708,75 +708,141 @@
       },
       "complete": false,
       "runnable": true,
-      "changes": "Reference ventricular APD 300 → 380 ms.",
-      "limitations": "Not an ionic model: no rate-dependence specific to IKr block, no EADs, no transmural differential effect. See the ionic single-cell lab (TP06) for the cellular mechanism.",
-      "validation": "Automated test: \"APD prolongation lengthens QT\" (tests/physiology/scenarios.test.ts)."
+      "changes": "gKr × 0.5 in TP06; tissue: ventricular APD and gradients × 1.085, longitudinal CV × 1.",
+      "limitations": "Partial: ionic currents act in single cells only; tissue sees scaled APD/CV. No EADs/torsades; the M-cell layer is not represented in tissue, so transmural dispersion is under-represented.",
+      "validation": "Automated test: \"TP06 mapping ikr50\" (tests/physiology/scenarios.test.ts)."
+    },
+    {
+      "id": "ikr-90",
+      "name": "IKr inhibition 90 %",
+      "group": "E · Ionic/drug",
+      "status": "partial",
+      "modelClass": "reduced-order",
+      "criteria": {
+        "mechanism": false,
+        "initialization": true,
+        "activationSequence": true,
+        "ecg": true,
+        "actionPotential": true,
+        "explanation": true,
+        "validation": true,
+        "ui": true
+      },
+      "complete": false,
+      "runnable": true,
+      "changes": "gKr × 0.1 in TP06; tissue: ventricular APD and gradients × 1.173, longitudinal CV × 1.",
+      "limitations": "Partial: ionic currents act in single cells only; tissue sees scaled APD/CV. As above; TP06 produced no EADs under these conditions, so torsades cannot arise.",
+      "validation": "Automated test: \"TP06 mapping ikr90\" (tests/physiology/scenarios.test.ts)."
     },
     {
       "id": "short-qt",
-      "name": "Short QT",
+      "name": "IKr gain of function (short-QT pattern)",
       "group": "E · Ionic/drug",
-      "status": "unsupported",
-      "modelClass": "none",
+      "status": "partial",
+      "modelClass": "reduced-order",
       "criteria": {
         "mechanism": false,
-        "initialization": false,
-        "activationSequence": false,
-        "ecg": false,
-        "actionPotential": false,
-        "explanation": false,
-        "validation": false,
-        "ui": false
+        "initialization": true,
+        "activationSequence": true,
+        "ecg": true,
+        "actionPotential": true,
+        "explanation": true,
+        "validation": true,
+        "ui": true
       },
       "complete": false,
-      "runnable": false,
-      "changes": "—",
-      "limitations": "Not runnable. Requires: IKr/IKs gain-of-function in an ionic tissue model (a uniform APD reduction would only be a proxy).",
-      "validation": "Not applicable (no model)."
+      "runnable": true,
+      "changes": "gKr × 2 in TP06; tissue: ventricular APD and gradients × 0.872, longitudinal CV × 1.",
+      "limitations": "Partial: ionic currents act in single cells only; tissue sees scaled APD/CV. SQTS1 alters IKr inactivation kinetics, not just conductance.",
+      "validation": "Automated test: \"TP06 mapping ikr200\" (tests/physiology/scenarios.test.ts)."
     },
     {
       "id": "hyperk",
-      "name": "Hyperkalaemia",
+      "name": "Hyperkalaemia ([K⁺]o 8 mM)",
       "group": "E · Ionic/drug",
-      "status": "unsupported",
-      "modelClass": "none",
+      "status": "partial",
+      "modelClass": "reduced-order",
       "criteria": {
         "mechanism": false,
-        "initialization": false,
-        "activationSequence": false,
-        "ecg": false,
-        "actionPotential": false,
-        "explanation": false,
-        "validation": false,
-        "ui": false
+        "initialization": true,
+        "activationSequence": true,
+        "ecg": true,
+        "actionPotential": true,
+        "explanation": true,
+        "validation": true,
+        "ui": true
       },
       "complete": false,
-      "runnable": false,
-      "changes": "—",
-      "limitations": "Not runnable. Requires: extracellular K⁺ effects on resting potential, Na⁺ availability (conduction slowing) and IK1/IKr (peaked T) in tissue — requires the ionic tissue layer.",
-      "validation": "Not applicable (no model)."
+      "runnable": true,
+      "changes": "Ko 5.4 → 8 mM in TP06; tissue: ventricular APD and gradients × 0.971, longitudinal CV × 0.657.",
+      "limitations": "Partial: ionic currents act in single cells only; tissue sees scaled APD/CV. Peaked T waves (faster repolarisation) are not transferred because tissue AP shape is fixed; atrial and AV-nodal effects not mapped.",
+      "validation": "Automated test: \"TP06 mapping ko8\" (tests/physiology/scenarios.test.ts)."
     },
     {
       "id": "hypok",
-      "name": "Hypokalaemia",
+      "name": "Hypokalaemia ([K⁺]o 3 mM)",
       "group": "E · Ionic/drug",
-      "status": "unsupported",
-      "modelClass": "none",
+      "status": "partial",
+      "modelClass": "reduced-order",
       "criteria": {
         "mechanism": false,
-        "initialization": false,
-        "activationSequence": false,
-        "ecg": false,
-        "actionPotential": false,
-        "explanation": false,
-        "validation": false,
-        "ui": false
+        "initialization": true,
+        "activationSequence": true,
+        "ecg": true,
+        "actionPotential": true,
+        "explanation": true,
+        "validation": true,
+        "ui": true
       },
       "complete": false,
-      "runnable": false,
-      "changes": "—",
-      "limitations": "Not runnable. Requires: the ionic tissue layer (reduced IK1/IKr, U waves are not representable).",
-      "validation": "Not applicable (no model)."
+      "runnable": true,
+      "changes": "Ko 5.4 → 3 mM in TP06; tissue: ventricular APD and gradients × 1.044, longitudinal CV × 1.111.",
+      "limitations": "Partial: ionic currents act in single cells only; tissue sees scaled APD/CV. U waves and T flattening are not representable; increased Na⁺ availability slightly speeds conduction in the mapping.",
+      "validation": "Automated test: \"TP06 mapping ko3\" (tests/physiology/scenarios.test.ts)."
+    },
+    {
+      "id": "na-block",
+      "name": "Sodium-channel blockade (INa −50 %)",
+      "group": "E · Ionic/drug",
+      "status": "partial",
+      "modelClass": "reduced-order",
+      "criteria": {
+        "mechanism": false,
+        "initialization": true,
+        "activationSequence": true,
+        "ecg": true,
+        "actionPotential": true,
+        "explanation": true,
+        "validation": true,
+        "ui": true
+      },
+      "complete": false,
+      "runnable": true,
+      "changes": "gNa × 0.5 in TP06; tissue: ventricular APD and gradients × 1.004, longitudinal CV × 0.785.",
+      "limitations": "Partial: ionic currents act in single cells only; tissue sees scaled APD/CV. Use-dependence (rate-dependent block) is not modelled; atrial/His–Purkinje effects not mapped.",
+      "validation": "Automated test: \"TP06 mapping na50\" (tests/physiology/scenarios.test.ts)."
+    },
+    {
+      "id": "ca-block",
+      "name": "L-type Ca²⁺-channel blockade (ICaL −50 %)",
+      "group": "E · Ionic/drug",
+      "status": "partial",
+      "modelClass": "reduced-order",
+      "criteria": {
+        "mechanism": false,
+        "initialization": true,
+        "activationSequence": true,
+        "ecg": true,
+        "actionPotential": true,
+        "explanation": true,
+        "validation": true,
+        "ui": true
+      },
+      "complete": false,
+      "runnable": true,
+      "changes": "gCaL × 0.5 in TP06; tissue: ventricular APD and gradients × 0.771, longitudinal CV × 1.011.",
+      "limitations": "Partial: ionic currents act in single cells only; tissue sees scaled APD/CV. The dominant clinical effect (AV-nodal slowing) is not modelled because the AV node is a lumped link without ionic currents.",
+      "validation": "Automated test: \"TP06 mapping cal50\" (tests/physiology/scenarios.test.ts)."
     },
     {
       "id": "hyperca",
@@ -797,7 +863,7 @@
       "complete": false,
       "runnable": false,
       "changes": "—",
-      "limitations": "Not runnable. Requires: the ionic tissue layer (ICaL inactivation → shorter plateau / ST).",
+      "limitations": "Not runnable. Requires: a cell model whose APD shortens with raised [Ca²⁺]o. TP06 predicts the opposite direction (longer APD), contradicting the clinical QT–calcium relationship, so the result would be misleading.",
       "validation": "Not applicable (no model)."
     },
     {
@@ -819,51 +885,7 @@
       "complete": false,
       "runnable": false,
       "changes": "—",
-      "limitations": "Not runnable. Requires: the ionic tissue layer (longer plateau / ST).",
-      "validation": "Not applicable (no model)."
-    },
-    {
-      "id": "na-block",
-      "name": "Sodium-channel blockade",
-      "group": "E · Ionic/drug",
-      "status": "unsupported",
-      "modelClass": "none",
-      "criteria": {
-        "mechanism": false,
-        "initialization": false,
-        "activationSequence": false,
-        "ecg": false,
-        "actionPotential": false,
-        "explanation": false,
-        "validation": false,
-        "ui": false
-      },
-      "complete": false,
-      "runnable": false,
-      "changes": "—",
-      "limitations": "Not runnable. Requires: use-dependent INa block coupled to conduction velocity in tissue (planned: CV scaling from the ionic model's Na availability).",
-      "validation": "Not applicable (no model)."
-    },
-    {
-      "id": "ca-block",
-      "name": "Calcium-channel blockade",
-      "group": "E · Ionic/drug",
-      "status": "unsupported",
-      "modelClass": "none",
-      "criteria": {
-        "mechanism": false,
-        "initialization": false,
-        "activationSequence": false,
-        "ecg": false,
-        "actionPotential": false,
-        "explanation": false,
-        "validation": false,
-        "ui": false
-      },
-      "complete": false,
-      "runnable": false,
-      "changes": "—",
-      "limitations": "Not runnable. Requires: nodal ICaL-dependent conduction (AV node) and plateau effects — the AV node is a lumped link without ionic currents.",
+      "limitations": "Not runnable. Requires: as for hypercalcaemia (TP06 shortens rather than prolongs APD at low [Ca²⁺]o).",
       "validation": "Not applicable (no model)."
     },
     {
@@ -885,7 +907,7 @@
       "complete": false,
       "runnable": false,
       "changes": "—",
-      "limitations": "Not runnable. Requires: ionic tissue coupling; EADs can be inspected only in the single-cell ionic model (not propagated).",
+      "limitations": "Not runnable. Requires: an EAD-capable cell model coupled to tissue. TP06 produced no EADs for IKr 0–10 %, ICaL ×1.5–2, IKs ×0.5 at CL 2000 ms (scripts/dev), and tissue coupling of ionic models is not implemented.",
       "validation": "Not applicable (no model)."
     },
     {
