@@ -9,15 +9,16 @@
 | M5 | Re-entry via lumped links (AVNRT, orthodromic/antidromic AVRT, pre-excitation), focal AT/VT, TP06 ionic cell lab, Group E mapped scenarios | done; scar VT, flutter, AF, VF and TdP unsupported |
 | M6 | Lessons L1–L8 with quizzes, A/B side-by-side mode, narrow-layout ECG, tests, documentation | done |
 | Video | 1080p30 MP4 demonstration with captions | see `video/` |
+| 2b | User feedback: flicker-free sweep displays (lead strips, A/B, ECG selected leads; pixel-quantised AP scrolling), premature-beat controls (fire one / patterns), atrial flutter and AF models, rhythm-level measurements, revised APD restitution, retrograde Purkinje delay, LBBB validated | done |
 
 ## Scenario registry (`docs/scenario-registry.json`)
 
 | Status | Count |
 |---|---|
-| Validated (all 8 criteria, automated test) | 22 |
-| Implemented but incomplete (RBBB, LBBB morphology) | 2 |
+| Validated (all 8 criteria, automated test) | 25 |
+| Implemented but incomplete (RBBB axis; pre-Phase-2b items fixed) | 1 |
 | Partially simulated (focal VT; 7 TP06-mapped ionic/drug scenarios) | 8 |
-| Unsupported (labelled, not runnable) | 10 |
+| Unsupported (labelled, not runnable) | 8 |
 | Placeholder | 0 |
 
 ## Modes

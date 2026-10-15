@@ -42,3 +42,9 @@ Every parameter tagged `nominal` in the app, and the scalar torso transfer facto
 - Sun J, Amellal F, Glass L, Billette J. Alternans and period-doubling bifurcations in atrioventricular nodal conduction. J Theor Biol 1995;173:79–91 — AV-nodal recovery term reused for the slow pathway.
 - Cable-theory relation CV ∝ √(dV/dt_max) used for the ionic→tissue CV mapping is an approximation (uniform fibre); no numerical calibration to human data is claimed.
 - Accessory-pathway, slow-pathway and ectopy parameters are nominal (no data source); they are chosen to demonstrate mechanisms.
+
+## Phase 2b additions
+- Franz MR, Swerdlow CD, Liem LB, Schaefer J. Cycle length dependence of human action potential duration in vivo. J Clin Invest 1988;82:972–979. doi:10.1172/JCI113706 — steady-state slope, abrupt first-beat change with slow (minutes) adaptation, biphasic extrastimulus restitution (basis of the two-component restitution shape).
+- Strauss DG, Selvester RH, Wagner GS. Defining left bundle branch block in the era of cardiac resynchronization therapy. Am J Cardiol 2011;107:927–934. doi:10.1016/j.amjcard.2010.11.010 — QRS ≥ 140 ms (men) width criterion used for LBBB calibration.
+- Verma A et al. Heart Rhythm 2008;5:198–205. doi:10.1016/j.hrthm.2007.09.027 — CS AF cycle length 171 ± 27 ms (AF calibration target).
+- Segan L et al. (CAPLA substudy). JACC Clin Electrophysiol 2023;9:2536–2546. doi:10.1016/j.jacep.2023.08.018 — median shortest PV cycle length 126 ms (PV focus rate).

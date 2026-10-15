@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-15T20:37:38.614Z",
+  "generated": "2026-10-15T20:45:53.139Z",
   "statusClasses": [
     "validated",
     "incomplete",
@@ -665,29 +665,29 @@
       "complete": false,
       "runnable": true,
       "changes": "RBB block on.",
-      "limitations": "RV mass and trans-septal conduction in the idealised geometry produce too little QRS prolongation and an implausible frontal axis — morphology is therefore only partly reproduced.",
+      "limitations": "The idealised RV geometry/mass produces an implausible frontal QRS axis in RBBB, so the morphology is only partly reproduced.",
       "validation": "Automated test: \"RBBB\" (tests/physiology/scenarios.test.ts)."
     },
     {
       "id": "lbbb",
       "name": "Left bundle branch block",
       "group": "Conduction (BBB)",
-      "status": "incomplete",
+      "status": "validated",
       "modelClass": "mechanistic",
       "criteria": {
         "mechanism": true,
         "initialization": true,
         "activationSequence": true,
-        "ecg": false,
+        "ecg": true,
         "actionPotential": true,
         "explanation": true,
         "validation": true,
         "ui": true
       },
-      "complete": false,
+      "complete": true,
       "runnable": true,
       "changes": "LBB block on.",
-      "limitations": "The LV Purkinje network is re-entered retrogradely through Purkinje–muscle junctions, which shortens LV activation compared with clinical LBBB.",
+      "limitations": "Retrograde entry into the LV Purkinje network is limited by a nominal retrograde junction delay (40 ms), calibrated so that QRS reaches the ≥ 140 ms LBBB criterion (Strauss et al. 2011); precordial morphology is affected by the near-field V2–V4 artefact.",
       "validation": "Automated test: \"LBBB\" (tests/physiology/scenarios.test.ts)."
     },
     {

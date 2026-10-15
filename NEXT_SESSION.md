@@ -1,6 +1,6 @@
 # NEXT_SESSION — checkpoint
 
-_Last updated: end of Phase 2 (Milestones 1–6 complete; demo video produced from the running app)._
+_Last updated: Phase 2b (user feedback: video flicker, premature-beat controls, atrial flutter and AF)._
 
 ## Where things are
 - Source: `/home/claude/cardiosim` (git; one commit per milestone). Delivered copy: `D:\ECG\cardiosim-lab\` plus
@@ -22,6 +22,14 @@ _Last updated: end of Phase 2 (Milestones 1–6 complete; demo video produced fr
 - A retrograde link exit or a re-excitation by the same wave creates a child wave (`origin` retrograde / reentry).
 - PR is reported only for model-confirmed antegrade P→QRS conduction (`applyRhythmRules` in measurements.ts).
 - TP06→tissue mapping values in `TP06_MAPPED` are re-derived by `tests/physiology/ionic.test.ts`.
+
+## Phase 2b notes
+- Strip displays now sweep (fixed page + moving cursor); AP panel scrolls in whole-pixel steps; lead-strip amplitude scale only grows (reset on restart) — these removed the flicker in the demo video.
+- Restitution: `apdDynamic()` in actionPotential.ts + per-cell `clMem` in the engine (snapshotted).
+- Retrograde PMJ delay `hisPurkinje.pmjRetroDelay` (40 ms) — changes PVC/LBBB width.
+- Substrates: `model.substrates` (tvCap, svc, ivc, intercaval, cti, scarCore, scarIsthmus, scarBorder, scarPurkinje) masked by `substrateMasks()` in derive.ts; renderer greys blocked nodes.
+- Scar VT prototype parameters exist but are hidden (see SCIENTIFIC_LIMITATIONS).
+- Rhythm-level analysis: `summariseRhythm()` (ecg-forward/rhythm.ts), `SimData.rhythm()`.
 
 ## Next (see IMPLEMENTATION_BACKLOG.md)
 1. BBB morphology (RBBB width/axis, LBBB retrograde Purkinje entry) → then promote to validated.

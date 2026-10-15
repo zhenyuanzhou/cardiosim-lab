@@ -23,8 +23,8 @@ npm run dev          # opens http://localhost:5173
 | `npm run dev` | Development server with hot reload |
 | `npm run build` | Type-check and build a static site in `dist/` (serve with `npm run preview`) |
 | `npm run build:standalone` | Build one self-contained HTML file in `dist-standalone/index.html` |
-| `npm test` | 72 physiology / scenario / ionic / ECG unit tests (Vitest, about 5 min) |
-| `npm run test:e2e` | 17 browser tests (Playwright). First time: `npx playwright install chromium` |
+| `npm test` | 79 physiology / scenario / ionic / ECG unit tests (Vitest, about 5 min) |
+| `npm run test:e2e` | 20 browser tests (Playwright). First time: `npx playwright install chromium` |
 | `npm run validate` | Prints a baseline report: ECG-measured intervals vs model timings vs references |
 
 ## Using the app
@@ -50,7 +50,7 @@ Panels can be resized by dragging the dividers and maximised with ⤢ (Esc resto
 
 | Mechanistic or reduced-order and runnable | Partial | Not supported (labelled, not runnable) |
 |---|---|---|
-| Sinus rhythm and rate changes, sinus arrest, SA exit block, 1° AV block, Mobitz I and II, 2:1 and complete AV block with escape rhythms, PACs, PVCs (compensatory and interpolated), bigeminy, trigeminy, couplets, focal AT, AVNRT, orthodromic and antidromic AVRT, pre-excitation, BBB (morphology incomplete) | Focal VT (automaticity imposed); IKr inhibition, short QT, hyper-/hypokalaemia, Na⁺ and Ca²⁺ channel block via the TP06 ionic cell model mapped to tissue APD/CV | Atrial flutter, AF, scar VT, polymorphic VT, TdP, VF, hyper-/hypocalcaemia, EAD/DAD propagation, drug-specific arrhythmias |
+| Sinus rhythm and rate changes, sinus arrest, SA exit block, 1° AV block, Mobitz I and II, 2:1 and complete AV block with escape rhythms, PACs, PVCs (compensatory and interpolated), bigeminy, trigeminy, couplets (also on demand: *Premature beats* controls), focal AT, AVNRT, orthodromic and antidromic AVRT, pre-excitation, typical atrial flutter, atrial fibrillation, LBBB; RBBB (axis incomplete) | Focal VT (automaticity imposed); IKr inhibition, short QT, hyper-/hypokalaemia, Na⁺ and Ca²⁺ channel block via the TP06 ionic cell model mapped to tissue APD/CV | Scar VT, polymorphic VT, TdP, VF, hyper-/hypocalcaemia, EAD/DAD propagation, drug-specific arrhythmias |
 
 The status of every scenario is in `docs/scenario-registry.json`; limitations are in `SCIENTIFIC_LIMITATIONS.md`. The details are in `docs/FIDELITY_MATRIX.md`. The baseline (default parameters, measured from the simulated ECG) is HR 66, PR 156 ms, QRS 84 ms, QT 372 ms, QTc 390 ms and QRS axis +18°; the model gives AH 65 ms and HV 41 ms.
 

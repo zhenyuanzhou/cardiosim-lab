@@ -2,7 +2,7 @@
 
 Run on the Phase 2 code base (headless Chromium 1194 for end-to-end tests).
 
-## Unit / physiology (`npx vitest run`): 72 / 72 passed
+## Unit / physiology (`npx vitest run`): 79 / 79 passed
 
 | File | Tests | Covers |
 |---|---|---|
@@ -10,7 +10,7 @@ Run on the Phase 2 code base (headless Chromium 1194 for end-to-end tests).
 | tests/physiology/rateDependence.test.ts | 4 | Rate → QT and AV-nodal conduction, vagal effects |
 | tests/simulation/engine.test.ts | 12 | Determinism, checkpoint/restore replay, parameter changes only after t, AV-nodal block, escape rhythms, premature activation, refractoriness |
 | tests/ecg/ecg.test.ts | 10 | Forward model and measurement pipeline |
-| tests/physiology/scenarios.test.ts | 25 | One mechanistic test per validated registry scenario + registry consistency |
+| tests/physiology/scenarios.test.ts | 28 | One mechanistic test per validated registry scenario (incl. flutter: regular re-entry, tricuspid obstacle never activated, AV filtering; AF: irregular atrial and ventricular activation, persistence after the PV trigger stops; LBBB ≥ 140 ms) + registry consistency |
 | tests/physiology/ionic.test.ts | 9 | TP06 cell-type behaviour and rate adaptation; each TP06→tissue mapping recomputed from the cell model and its ECG effect checked |
 
 Scenario tests check mechanism signatures from the simulator's own records, not only waveform changes. For example:
@@ -19,7 +19,7 @@ Scenario tests check mechanism signatures from the simulator's own records, not 
 - **AVNRT:** ≥ 8 cycles via slow-antegrade / fast-retrograde conduction.
 - **Antidromic AVRT:** pre-excited complexes with retrograde AV-nodal conduction.
 
-## End-to-end (`npx playwright test`): 17 / 17 passed
+## End-to-end (`npx playwright test`): 20 / 20 passed
 
 | Area | Tests |
 |---|---|
@@ -36,6 +36,8 @@ Scenario tests check mechanism signatures from the simulator's own records, not 
 | Timeline events | Clicking an event highlights a structure and shows its explanation |
 | Lessons | A lesson loads its starting state and switches the view |
 | Ionic cell lab | TP06 lab runs and reports APD90 for three cell types |
+| Premature beats | "Fire one premature beat" → exactly one ectopic QRS detected and labelled; bigeminy/trigeminy buttons → coupled ectopic beats |
+| Atrial arrhythmias | Flutter and AF scenarios show rhythm-level measurements (flutter-wave rate; "single RR or PR not meaningful") |
 | Responsive layout | Phone width (390 px): no horizontal scroll; ECG sized to its content |
 
 ## Not covered by automated tests
