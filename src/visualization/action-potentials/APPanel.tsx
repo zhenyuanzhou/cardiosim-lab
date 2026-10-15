@@ -41,7 +41,9 @@ export function APPanel({ probeIds }: { probeIds?: string[] } = {}) {
       const laneH = (h - stripH - axisH) / Math.max(1, lanes.length);
       const x0 = LABEL_W;
       const pw = w - x0 - 8;
-      const t0 = t - WINDOW;
+      // scroll in whole-pixel steps so samples and grid lines do not shimmer between frames
+      const msPerPx = WINDOW / Math.max(1, pw);
+      const t0 = Math.floor((t - WINDOW) / msPerPx) * msPerPx;
       const X = (tt: number) => x0 + ((tt - t0) / WINDOW) * pw;
       // time grid (200 ms)
       ctx.strokeStyle = tk.line;
@@ -97,7 +99,7 @@ export function APPanel({ probeIds }: { probeIds?: string[] } = {}) {
         ctx.strokeStyle = tk.trace;
         ctx.lineWidth = 1.4;
         ctx.beginPath();
-        const step = Math.max(0.5, WINDOW / pw);
+        const step = msPerPx;
         let first = true;
         for (let tt = t0; tt <= t; tt += step) {
           const x = X(tt);
@@ -186,7 +188,7 @@ export function APPanel({ probeIds }: { probeIds?: string[] } = {}) {
       ctx.lineWidth = 1.3;
       ctx.beginPath();
       let first = true;
-      for (let tt = Math.max(t0, data.tStart); tt <= t; tt += data.dt) {
+      for (let tt = Math.ceil(Math.max(t0, data.tStart) / data.dt) * data.dt; tt <= t; tt += data.dt) {
         const v = data.at(tt, 1);
         if (Number.isNaN(v)) continue;
         const x = X(tt);

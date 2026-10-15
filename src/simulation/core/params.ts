@@ -28,6 +28,10 @@ export interface SimParams {
     fastPathFactor: number; // CV multiplier in Bachmann's bundle and crista terminalis
     apd: number; // ms, APD90 at CL 1000 ms
     erpRatio: number; // ERP / APD90
+    flutterSubstrate: boolean; // tricuspid-annulus / caval obstacles, intercaval block line, slow CTI
+    ctiCvFactor: number; // CV multiplier inside the cavotricuspid isthmus
+    ctiApdFactor: number; // APD multiplier inside the CTI
+    heterogeneity: number; // relative SD of atrial APD (spatially smoothed, seeded)
   };
   avNode: {
     ahMin: number; // ms, fully recovered AV nodal conduction time
@@ -41,6 +45,7 @@ export interface SimParams {
     slowAhMin: number; // ms, slow-pathway minimum conduction time
     slowErp: number; // ms, slow-pathway refractoriness (from its previous invasion)
     completeBlock: boolean;
+    concealment: number; // 0–1, partial penetration of blocked antegrade impulses (concealed conduction)
   };
   hisPurkinje: {
     hisDelay: number; // ms, His bundle conduction time
@@ -50,6 +55,7 @@ export interface SimParams {
     lpfCv: number; // m/s
     purkinjeCv: number; // m/s, distal network
     pmjDelay: number; // ms, Purkinje-muscle junction delay
+    pmjRetroDelay: number; // ms, muscle → Purkinje (retrograde) junction delay; ≥ 200 = no retrograde entry
     apd: number; // ms, APD90 at CL 1000
     rbbBlock: boolean;
     lbbBlock: boolean;
@@ -67,6 +73,10 @@ export interface SimParams {
     apicobasalGradient: number; // ms, APD(apex) - APD(base)
     erpRatio: number; // ERP / APD90
     electrotonicSmoothing: number; // mm, Gaussian radius used to smooth intrinsic APD map
+    scar: boolean; // inferolateral transmural scar with one slow isthmus
+    isthmusCvFactor: number;
+    isthmusApdFactor: number;
+    borderCvFactor: number;
   };
   restitution: {
     cvAmplitude: number; // fractional CV reduction at DI -> 0
@@ -95,13 +105,14 @@ export interface SimParams {
     every: number; // normal beats between ectopic events (single / couplet / run)
     runLength: number; // ectopic beats per run
     rate: number; // bpm, for the "focus" pattern
+    shot: number; // incremented by "Fire one premature beat" so that the same request can be repeated
   };
 }
 
 export type RetroMode = "conducted" | "concealed" | "blocked";
 export const ACCESSORY_SITES = ["none", "ap-left-lateral", "ap-posteroseptal", "ap-right-free-wall"] as const;
 export type AccessorySite = (typeof ACCESSORY_SITES)[number];
-export const ECTOPIC_SITES = ["none", "ra-high", "ra-low", "la", "rvot", "rv-apex", "septum", "lv-apex", "lv-lateral", "lv-anterobasal", "lv-inferobasal"] as const;
+export const ECTOPIC_SITES = ["none", "ra-high", "ra-low", "la", "rvot", "rv-apex", "septum", "lv-apex", "lv-lateral", "lv-anterobasal", "lv-inferobasal", "scar-border"] as const;
 export type EctopicSite = (typeof ECTOPIC_SITES)[number];
 export const ECTOPY_PATTERNS = ["single", "once", "bigeminy", "trigeminy", "couplet", "run", "focus"] as const;
 export type EctopyPattern = (typeof ECTOPY_PATTERNS)[number];
@@ -117,6 +128,7 @@ export const SITE_LABELS: Record<string, string> = {
   "lv-lateral": "LV lateral wall",
   "lv-anterobasal": "LV anterobasal",
   "lv-inferobasal": "LV inferobasal",
+  "scar-border": "LV scar border (isthmus end)",
   "ap-left-lateral": "Left lateral",
   "ap-posteroseptal": "Posteroseptal",
   "ap-right-free-wall": "Right free wall",
@@ -128,7 +140,7 @@ export const DEFAULT_PARAMS: SimParams = {
   seed: 1,
   sinus: { intrinsicRate: 92, vagalTone: 0.5, sympatheticTone: 0.1, exitDelay: 10 },
   escape: { junctionalRate: 45, ventricularRate: 30 },
-  atria: { cv: 0.9, fastPathFactor: 1.6, apd: 220, erpRatio: 0.95 },
+  atria: { cv: 0.9, fastPathFactor: 1.6, apd: 220, erpRatio: 0.95, flutterSubstrate: false, ctiCvFactor: 0.2, ctiApdFactor: 1.3, heterogeneity: 0 },
   avNode: {
     ahMin: 65,
     recoveryAmplitude: 180,
@@ -141,6 +153,7 @@ export const DEFAULT_PARAMS: SimParams = {
     slowAhMin: 200,
     slowErp: 250,
     completeBlock: false,
+    concealment: 0,
   },
   hisPurkinje: {
     hisDelay: 18,
@@ -150,6 +163,7 @@ export const DEFAULT_PARAMS: SimParams = {
     lpfCv: 1.5,
     purkinjeCv: 3.0,
     pmjDelay: 8,
+    pmjRetroDelay: 40,
     apd: 330,
     rbbBlock: false,
     lbbBlock: false,
@@ -166,12 +180,16 @@ export const DEFAULT_PARAMS: SimParams = {
     apicobasalGradient: -30,
     erpRatio: 0.92,
     electrotonicSmoothing: 4,
+    scar: false,
+    isthmusCvFactor: 0.2,
+    isthmusApdFactor: 1.15,
+    borderCvFactor: 0.5,
   },
   restitution: { cvAmplitude: 0.5, cvTau: 30 },
   forward: { limbGain: 2.5, precordialGain: 0.8 },
   rhythm: { sinusArrest: false, saExitBlockEvery: 0 },
   accessory: { site: "none", conductionTime: 15, anteErp: 280, retroErp: 260, antegrade: true },
-  ectopy: { site: "none", pattern: "single", coupling: 450, every: 4, runLength: 3, rate: 150 },
+  ectopy: { site: "none", pattern: "single", coupling: 450, every: 4, runLength: 3, rate: 150, shot: 0 },
 };
 
 export type Evidence = "literature" | "calibrated" | "nominal";
@@ -731,9 +749,32 @@ PARAM_META.push(
     "Minimum conduction time over the slow pathway (recovery term added).", "Longer → longer PR after a jump; longer AVNRT cycle.", "Nominal; not fitted."),
   num("avNode.slowErp", "Slow-pathway ERP", "ms", 100, 600, 1, "AV nodal function", "AV node slow pathway",
     "Measured from the pathway's previous invasion (not from its exit).", "Shorter → wider window for slow-pathway conduction.", "Nominal; not fitted."),
+  sw("atria.flutterSubstrate", "Flutter anatomy (RA obstacles + slow CTI)", "Atrial properties", "Right atrium: tricuspid annulus, venae cavae, intercaval line, cavotricuspid isthmus",
+    "Makes the tricuspid-annulus region, the SVC/IVC orifices and an intercaval line posterior to the crista non-conducting, and slows conduction in the cavotricuspid isthmus. This creates the anatomical circuit of typical flutter.",
+    "No re-entry by itself; a premature atrial beat or burst that blocks in the isthmus can start macro-re-entry around the tricuspid annulus (flutter).",
+    "Anatomical concept from mapping studies of typical flutter; geometry and sizes are idealised (nominal)."),
+  num("atria.ctiCvFactor", "CTI conduction-velocity factor", "×", 0.1, 1, 0.01, "Atrial properties", "Cavotricuspid isthmus", "CV multiplier inside the isthmus (flutter anatomy only).", "Lower → longer flutter cycle length.", "Nominal."),
+  num("atria.ctiApdFactor", "CTI APD factor", "×", 0.8, 2, 0.01, "Atrial properties", "Cavotricuspid isthmus", "APD (and ERP) multiplier inside the isthmus (flutter anatomy only).", "Longer → a premature beat blocks unidirectionally in the isthmus more easily.", "Nominal."),
+  num("atria.heterogeneity", "Atrial repolarisation heterogeneity", "SD", 0, 0.5, 0.01, "Atrial properties", "Atrial myocardium (remodelling)",
+    "Relative spatial dispersion of atrial APD (seeded, smoothed over ≈ 5 mm). Combined with shortened APD and slowed CV it lets rapid activation break up into fibrillatory conduction.",
+    "Higher → local 2:1 block and wave break during rapid firing.", "Nominal."),
+  sw("ventricles.scar", "LV scar with slow isthmus", "Ventricular electrophysiology", "LV inferolateral mid wall",
+    "A transmural, non-conducting scar core crossed by one slow-conducting isthmus (surviving fibres); Purkinje fibres over the scar are lost.",
+    "No arrhythmia by itself; programmed stimulation near the isthmus can start re-entrant monomorphic VT.", "Idealised geometry (nominal)."),
+  num("ventricles.isthmusCvFactor", "Isthmus CV factor", "×", 0.05, 1, 0.01, "Ventricular electrophysiology", "Scar isthmus", "CV multiplier in the isthmus.", "Lower → slower VT.", "Nominal."),
+  num("ventricles.borderCvFactor", "Scar border-zone CV factor", "×", 0.1, 1, 0.01, "Ventricular electrophysiology", "Scar border zone (7 mm rim)", "CV multiplier in the rim of surviving myocardium around the scar.", "Lower → slower re-entry around the scar.", "Nominal."),
+  num("ventricles.isthmusApdFactor", "Isthmus APD factor", "×", 0.8, 2, 0.01, "Ventricular electrophysiology", "Scar isthmus (border zone)", "APD multiplier in the isthmus and border zone.", "Longer → unidirectional block of premature beats more likely.", "Nominal."),
+  num("avNode.concealment", "Concealed antegrade conduction", "0–1", 0, 1, 0.05, "AV nodal function", "AV node",
+    "Blocked antegrade impulses that arrive late in the refractory period (R ≥ 0.6·ERP) still penetrate the node and push its recovery reference forward by a fraction of the elapsed time (0 = off).",
+    "With rapid irregular atrial input (AF) this makes ventricular conduction irregular; it also lengthens the effective nodal refractoriness.",
+    "Concept: concealed AV-nodal conduction (Langendorf); the formulation and magnitude are nominal."),
   sw("avNode.completeBlock", "Complete AV nodal block", "Conduction block", "AV node",
     "The AV node (both pathways) conducts in neither direction.",
     "AV dissociation; a junctional escape rhythm (narrow QRS) from the His bundle below the block."),
+  num("hisPurkinje.pmjRetroDelay", "Retrograde Purkinje–muscle junction delay", "ms", 2, 200, 1, "His–Purkinje system", "Purkinje–muscle junctions (muscle → Purkinje)",
+    "Delay for an impulse arising in myocardium to enter the Purkinje network (200 = no retrograde entry). Retrograde junction conduction is slow/unreliable because of the large source–sink mismatch (small myocardial wavefront driving the Purkinje fibre).",
+    "Longer → ectopic beats and bundle-branch-block patterns spread mainly cell-to-cell: wider, more bizarre QRS. No effect in sinus rhythm.",
+    "Nominal; calibrated (40 ms) so that simulated LBBB reaches QRS ≥ 140 ms (Strauss et al. 2011 LBBB criterion) and myocardial PVCs are broad (≈ 160–200 ms) without making RBBB wider than ≈ 150 ms."),
   sw("hisPurkinje.infraHisComplete", "Complete infra-Hisian block", "Conduction block", "Distal His bundle",
     "No conduction from the His bundle into the bundle branches.",
     "AV dissociation with a slow ventricular escape (wide QRS); the junctional pacemaker is above the block and cannot capture."),
@@ -758,7 +799,8 @@ PARAM_META.push(
     "Too short → falls in the refractory period and fails to capture.", "User-chosen stimulus timing."),
   num("ectopy.every", "Normal beats between events", "beats", 1, 20, 1, "Ectopy", "Ectopic timing", "For single / couplet / run patterns.", "Frequency of ectopic events.", "User-chosen."),
   num("ectopy.runLength", "Run length", "beats", 2, 30, 1, "Ectopy", "Ectopic timing", "Number of consecutive ectopic beats in a run.", "Longer runs = non-sustained tachycardia.", "User-chosen."),
-  num("ectopy.rate", "Focus rate", "bpm", 30, 250, 1, "Ectopy", "Ectopic automatic focus", "Firing rate for the 'focus' pattern.", "Focal tachycardia when the rate exceeds the sinus rate.", "User-chosen."),
+  num("ectopy.shot", "One-shot request counter", "", 0, 1e9, 1, "Ectopy", "UI control", "Internal counter: each 'Fire one premature beat' click increments it so the request is applied again.", "None by itself.", "Internal."),
+  num("ectopy.rate", "Focus rate", "bpm", 30, 600, 1, "Ectopy", "Ectopic automatic focus", "Firing rate for the 'focus' pattern.", "Focal tachycardia when the rate exceeds the sinus rate.", "User-chosen."),
   ch("accessory.site", "Accessory pathway", "Accessory pathway", ACCESSORY_SITES, "Atrioventricular muscle bridge",
     "Adds a non-decremental AV connection bypassing the AV node at the chosen annular site.",
     "Manifest pathway: short PR, delta wave, wide QRS (pre-excitation). Concealed pathway: normal sinus ECG; substrate for orthodromic AVRT."),

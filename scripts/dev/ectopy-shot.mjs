@@ -1,0 +1,12 @@
+import { chromium } from "playwright";
+const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM_PATH, args: ["--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist"] });
+const page = await browser.newPage({ viewport: { width: 1600, height: 950 } });
+await page.goto(process.argv[2]);
+await page.waitForFunction(() => window.__cardiosim?.store.getState().ready, null, { timeout: 60000 });
+await page.click('[data-tab="scenarios"]');
+await page.click(`[data-scenario="${process.argv[4] ?? "bigeminy"}"]`);
+await page.click('[data-testid="scenario-load"]');
+await page.evaluate(() => window.__cardiosim.store.getState().set({ speed: 2 }));
+await page.waitForTimeout(9000);
+await page.screenshot({ path: process.argv[3] });
+await browser.close();

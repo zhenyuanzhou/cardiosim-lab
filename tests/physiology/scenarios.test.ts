@@ -146,7 +146,8 @@ describe("Group B — premature beats", () => {
     const i = v.findIndex((w) => w.origin === "ectopic");
     expect(i).toBeGreaterThan(0);
     expect(v[i + 1].origin).toBe("sinus");
-    expect(v[i + 1].tFirstVent - v[i - 1].tFirstVent).toBeLessThan(nsrCycle() + 120); // no pause
+    // no compensatory pause: the sinus cycle is only lengthened by the (concealment-prolonged) PR
+    expect(v[i + 1].tFirstVent - v[i - 1].tFirstVent).toBeLessThan(1.5 * nsrCycle());
     // concealed retrograde penetration prolongs the next PR
     const b = beats.find((x) => x.truth?.waveId === v[i + 1].id)!;
     expect(b.pr!).toBeGreaterThan(median(nsr().beats.map((x) => x.pr!)) + 50);
@@ -194,6 +195,58 @@ describe("Group C — supraventricular", () => {
     expect(median(b.map((x) => x.pr!))).toBeLessThan(120);
     expect(median(b.map((x) => x.qrs))).toBeGreaterThan(110);
     expect(median(b.map((x) => x.pr!))).toBeLessThan(median(nsr().beats.map((x) => x.pr!)) - 40);
+  });
+});
+
+describe("Group C — atrial flutter and fibrillation", () => {
+  const atrialTimes = (out: ReturnType<typeof run>["out"], site: string, after: number) => {
+    const node = model.ectopicSites[site];
+    const ts: number[] = [];
+    for (let k = 0; k < out.recT.length; k++) if (out.recNode[k] === node && out.recT[k] > after) ts.push(out.recT[k]);
+    return ts;
+  };
+  const ivs = (ts: number[]) => ts.slice(1).map((t, i) => t - ts[i]);
+  const cvOf = (xs: number[]) => {
+    const m = mean(xs);
+    return Math.sqrt(mean(xs.map((x) => (x - m) ** 2))) / m;
+  };
+  it("atrial flutter", () => {
+    const { out, waves } = sc("flutter", 9000);
+    expect(waves.filter((w) => w.origin === "reentry").length).toBeGreaterThan(20);
+    const ia = ivs(atrialTimes(out, "ra-high", 4000));
+    expect(ia.length).toBeGreaterThan(15);
+    expect(cvOf(ia)).toBeLessThan(0.03); // regular macro-re-entry
+    const rate = 60000 / median(ia);
+    expect(rate).toBeGreaterThan(250);
+    expect(rate).toBeLessThan(360);
+    // the tricuspid-annulus obstacle never activates (anatomical circuit)
+    const cap = new Set(model.substrates.tvCap);
+    for (let k = 0; k < out.recT.length; k++) expect(cap.has(out.recNode[k])).toBe(false);
+    // AV node filters: ventricular rate is a fraction of the atrial rate
+    const iv = ivs(atrialTimes(out, "rv-apex", 4000));
+    expect(median(iv)).toBeGreaterThan(1.8 * median(ia));
+  });
+  it("atrial fibrillation", () => {
+    const { out } = sc("af", 10000);
+    const ia = ivs(atrialTimes(out, "ra-high", 3000));
+    expect(cvOf(ia)).toBeGreaterThan(0.08); // irregular atrial activation
+    expect(median(ia)).toBeGreaterThan(140);
+    expect(median(ia)).toBeLessThan(260);
+    const iv = ivs(atrialTimes(out, "rv-apex", 3000));
+    expect(cvOf(iv)).toBeGreaterThan(0.1); // irregularly irregular ventricular response
+  });
+  it("atrial fibrillation persists after the PV trigger stops (re-entrant maintenance)", () => {
+    const s = SCENARIOS.find((x) => x.id === "af")!;
+    const p = s.apply!();
+    const r = run(p, 16000, (sim) => {
+      sim.run(6000);
+      const q = structuredClone(p);
+      q.ectopy.site = "none";
+      sim.setParams(q);
+    });
+    const ia = ivs(atrialTimes(r.out, "ra-high", 8000));
+    expect(ia.length).toBeGreaterThan(20);
+    expect(cvOf(ia)).toBeGreaterThan(0.08);
   });
 });
 

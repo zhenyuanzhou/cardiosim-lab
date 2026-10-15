@@ -3,6 +3,7 @@ import { useState } from "react";
 import { EXPERIMENTS } from "./experiments";
 import { useStore } from "../../state/store";
 import { restart } from "../../state/actions";
+import { EctopyQuick } from "../../components/controls/EctopyQuick";
 
 export function ExperimentsMenu() {
   const [open, setOpen] = useState(false);
@@ -42,6 +43,23 @@ export function ExperimentsMenu() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Popover with the premature-beat controls (explorer and split views). */
+export function EctopyMenu() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="exp-menu">
+      <button className={`btn ${open ? "on" : ""}`} onClick={() => setOpen(!open)} aria-expanded={open} data-testid="ectopy-button">
+        Premature beats ▾
+      </button>
+      {open && (
+        <div className="exp-pop" role="dialog">
+          <EctopyQuick compact />
         </div>
       )}
     </div>

@@ -12,10 +12,22 @@ export function MeasurementsTable() {
   if (!b) return <div className="note">Measurements appear after the first complete beat.</div>;
   const tr = b.truth;
   const w = tr ? data.waves.get(tr.waveId) : undefined;
+  const meta = sim.meta;
+  const atrialSites = meta ? ["ra-high", "ra-low", "la"].map((k) => meta.ectopicSites[k]).filter((x) => x !== undefined) : [];
+  const rh = data.rhythm(atrialSites, t);
+  const atrialTachy = rh.kind === "regular-atrial-tachyarrhythmia" || rh.kind === "fibrillatory";
   const rows: [string, string, string, string][] = [
-    ["Heart rate (bpm)", f0(b.hr), w ? "" : "", "60–100"],
-    ["RR (ms)", f0(b.rr), "", ""],
-    ["PR (ms)", f0(b.pr), tr && tr.pOn !== null ? f0(tr.qrsOn - tr.pOn) : "—", "120–200"],
+    ...(rh.kind === "fibrillatory"
+      ? ([
+          ["Mean ventricular rate (6 s, bpm)", f0(rh.ventRate), "", ""],
+          ["RR variability (CV %)", f0(rh.rrCV * 100), "", ""],
+        ] as [string, string, string, string][])
+      : ([
+          ["Heart rate (bpm)", f0(b.hr), "", "60–100"],
+          ["RR (ms)", f0(b.rr), "", ""],
+        ] as [string, string, string, string][])),
+    ...(atrialTachy ? ([["Atrial rate (/min)", "—", f0(rh.atrialRate), ""]] as [string, string, string, string][]) : []),
+    ["PR (ms)", atrialTachy ? "—" : f0(b.pr), atrialTachy ? "—" : tr && tr.pOn !== null ? f0(tr.qrsOn - tr.pOn) : "—", "120–200"],
     ["P duration (ms)", b.pOn !== null && b.pOff !== null ? f0(b.pOff - b.pOn) : "—", w ? f0(w.tLastAtrial - w.tFirstAtrial) : "—", "< 120"],
     ["QRS (ms)", f0(b.qrs), tr ? f0(tr.qrsOff - tr.qrsOn) : "—", "< 110"],
     ["QT (ms)", f0(b.qt), tr ? f0(tr.repolEnd - tr.qrsOn) : "—", ""],
@@ -29,6 +41,12 @@ export function MeasurementsTable() {
   return (
     <div>
       <p className="h3">Measurements · beat at {(b.qrsOn / 1000).toFixed(2)} s</p>
+      {rh.label && (
+        <div className="warnbox" data-testid="rhythm-note">
+          {rh.label}
+        </div>
+      )}
+      {b.notes.length > 0 && <div className="note">{b.notes.join(" ")}</div>}
       <table className="meas" data-testid="measurements">
         <thead>
           <tr>

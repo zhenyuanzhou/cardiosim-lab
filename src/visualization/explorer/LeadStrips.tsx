@@ -16,9 +16,13 @@ export function LeadStrips({ leads: override, height }: { leads?: string[]; heig
     const c = ref.current!;
     const ctx = c.getContext("2d")!;
     let last = "";
+    const scaleMemo = new Map<string, number>();
+    let lastT = 0;
     return registerRenderer((t) => {
       const data = sim.data;
       if (!data) return;
+      if (t < lastT - 500) scaleMemo.clear(); // restart or jump back: rescale
+      lastT = t;
       const st = useStore.getState();
       const leads = override ?? st.explorerLeads;
       const { w, h, dpr, resized } = fitCanvas(c);
@@ -31,10 +35,29 @@ export function LeadStrips({ leads: override, height }: { leads?: string[]; heig
       ctx.clearRect(0, 0, w, h);
       const x0 = 58 * fs;
       const pw = w - x0 - 14;
-      const t0 = t - WINDOW * 0.8;
+      // Monitor-style sweep: the page (and its grid) stays fixed while the cursor moves; the
+      // previous sweep remains visible ahead of the cursor after a short erase gap.
+      const t0 = Math.floor(t / WINDOW) * WINDOW;
       const t1 = t0 + WINDOW;
+      const GAP = 70;
       const X = (tt: number) => x0 + ((tt - t0) / WINDOW) * pw;
       const rowH = h / Math.max(1, leads.length);
+      /** Current sweep [t0, t] plus the previous sweep ahead of the cursor (after the erase gap). */
+      const sweep = (f: (tt: number) => number, base: number, vS: number) => {
+        const seg = (a: number, b: number, shift: number) => {
+          let first = true;
+          for (let tt = Math.max(a, data.tStart + shift); tt <= b; tt += data.dt) {
+            const v = f(tt - shift);
+            if (Number.isNaN(v)) continue;
+            const y = base - v * vS;
+            if (first) ctx.moveTo(X(tt), y);
+            else ctx.lineTo(X(tt), y);
+            first = false;
+          }
+        };
+        seg(t0, t, 0);
+        if (t + GAP < t1) seg(t + GAP, t1, WINDOW);
+      };
       // paper background + grid (40 ms / 0.1 mV-style, scaled per row)
       ctx.fillStyle = tk.paper;
       ctx.fillRect(x0, 0, pw, h);
@@ -42,9 +65,11 @@ export function LeadStrips({ leads: override, height }: { leads?: string[]; heig
         const li = leadIndex(lead);
         if (li < 0) return;
         const top = r * rowH;
-        // amplitude range from the retained window
-        let mx = 0.6;
-        for (let tt = Math.max(data.tStart, t - 6000); tt <= data.tEnd; tt += data.dt * 3) mx = Math.max(mx, Math.abs(data.at(tt, li)));
+        // amplitude scale: from all retained data, only ever increased (in 0.25 mV steps) so the
+        // vertical scale does not jump from frame to frame
+        let mx = scaleMemo.get(lead) ?? 0.6;
+        for (let tt = data.tStart; tt <= data.tEnd; tt += data.dt * 3) mx = Math.max(mx, Math.ceil(Math.abs(data.at(tt, li)) * 4) / 4);
+        scaleMemo.set(lead, mx);
         const vS = (rowH * 0.42) / mx;
         const base = top + rowH * 0.55;
         ctx.strokeStyle = tk["grid-minor"];
@@ -79,15 +104,10 @@ export function LeadStrips({ leads: override, height }: { leads?: string[]; heig
           ctx.setLineDash([5, 4]);
           ctx.lineWidth = 1.3;
           ctx.beginPath();
-          let first = true;
-          for (let tt = Math.max(t0, data.tStart); tt <= t; tt += data.dt) {
+          sweep((tt) => {
             const P = heartVector(data, tt);
-            const v = P[0] * fit.vec[0] + P[1] * fit.vec[1] + P[2] * fit.vec[2];
-            const y = base - v * vS;
-            if (first) ctx.moveTo(X(tt), y);
-            else ctx.lineTo(X(tt), y);
-            first = false;
-          }
+            return P[0] * fit.vec[0] + P[1] * fit.vec[1] + P[2] * fit.vec[2];
+          }, base, vS);
           ctx.stroke();
           ctx.setLineDash([]);
         }
@@ -95,15 +115,7 @@ export function LeadStrips({ leads: override, height }: { leads?: string[]; heig
         ctx.strokeStyle = LEAD_COLORS[lead] ?? tk.trace;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        let first = true;
-        for (let tt = Math.max(t0, data.tStart); tt <= t; tt += data.dt) {
-          const v = data.at(tt, li);
-          if (Number.isNaN(v)) continue;
-          const y = base - v * vS;
-          if (first) ctx.moveTo(X(tt), y);
-          else ctx.lineTo(X(tt), y);
-          first = false;
-        }
+        sweep((tt) => data.at(tt, li), base, vS);
         ctx.stroke();
         // current point
         const vNow = data.at(t, li);
@@ -148,14 +160,15 @@ export function LeadStrips({ leads: override, height }: { leads?: string[]; heig
       ctx.fillStyle = tk.cursor;
       ctx.font = `600 ${Math.round(10 * fs)}px IBM Plex Mono, monospace`;
       ctx.fillText(`${(t / 1000).toFixed(3)} s`, X(t) + 4, h - 5);
-      (c as HTMLCanvasElement & { _map?: unknown })._map = { x0, pw, t0 };
+      (c as HTMLCanvasElement & { _map?: unknown })._map = { x0, pw, t0, t };
     });
   }, [override]);
   const onClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const m = (e.currentTarget as HTMLCanvasElement & { _map?: { x0: number; pw: number; t0: number } })._map;
+    const m = (e.currentTarget as HTMLCanvasElement & { _map?: { x0: number; pw: number; t0: number; t: number } })._map;
     if (!m) return;
     const r = e.currentTarget.getBoundingClientRect();
-    const tt = m.t0 + ((e.clientX - r.left - m.x0) / m.pw) * WINDOW;
+    let tt = m.t0 + ((e.clientX - r.left - m.x0) / m.pw) * WINDOW;
+    if (tt > m.t) tt -= WINDOW; // ahead of the cursor = previous sweep
     if (sim.data && tt <= sim.data.tEnd && tt >= sim.data.tStart) {
       useStore.getState().set({ inspectT: tt });
       seek(tt);

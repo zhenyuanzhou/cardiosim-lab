@@ -30,6 +30,8 @@ export interface ConductionSystem {
   paths: { region: Region; nodes: number[] }[];
   links: LumpedLink[];
   ectopicSites: Record<string, number>;
+  /** Named node sets used by optional arrhythmia substrates (inactive unless a parameter enables them). */
+  substrates: Record<string, number[]>;
 }
 
 export function buildConductionSystem(
@@ -300,6 +302,65 @@ export function buildConductionSystem(
     "lv-inferobasal": midWall(0.18 * A.lvOuterL, (-110 * Math.PI) / 180, (i) => B.region[i] === RG.LV),
   };
 
+  // ---- Optional arrhythmia substrates (geometry only; parameters decide whether they act) -------
+  // Right atrium (typical flutter): tricuspid-annulus cap, SVC and IVC orifices, an intercaval line of
+  // block posterior to the crista terminalis, and the cavotricuspid isthmus (CTI) between IVC and TV.
+  const raNodes = atrial.filter((i) => B.region[i] !== RG.LA && B.region[i] !== RG.SAN);
+  const dirTo = (p: Vec3) => normalize(sub(p, raC));
+  const ang = (a: Vec3, b: Vec3) => (Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) * 180) / Math.PI;
+  const capDir = dirTo(fromLocal(f, A.ra.l + 0.85 * A.ra.R, A.ra.a + 0.51 * A.ra.R, A.ra.b + 0.09 * A.ra.R));
+  const svcDir = normalize([0.25, -0.9, -0.35]);
+  const ivcDir = normalize([-0.3, 0.85, -0.45]);
+  const keep = new Set<number>([...avnInputs, ...spInputs, ...within(atrial, saPos, 6)]);
+  const raDir = (i: number) => dirTo(nodePos(B, i));
+  const tvCap = raNodes.filter((i) => !keep.has(i) && ang(raDir(i), capDir) < 50);
+  const svc = raNodes.filter((i) => !keep.has(i) && ang(raDir(i), svcDir) < 18);
+  const ivc = raNodes.filter((i) => !keep.has(i) && ang(raDir(i), ivcDir) < 22);
+  const intercaval: number[] = [];
+  for (let k = 0; k <= 30; k++) {
+    const u = k / 30;
+    const d = normalize([svcDir[0] * (1 - u) + ivcDir[0] * u, svcDir[1] * (1 - u) + ivcDir[1] * u, svcDir[2] * (1 - u) + ivcDir[2] * u]);
+    const p = add(raC, scale(d, A.ra.R - 1.5));
+    for (const i of raNodes) if (!keep.has(i) && dist(nodePos(B, i), p) < 3.2) intercaval.push(i);
+  }
+  const cti = raNodes.filter((i) => {
+    const d = raDir(i);
+    const a = ang(d, capDir);
+    return a >= 50 && a < 74 && ang(d, ivcDir) < 50;
+  });
+  // Left ventricle (scar-related re-entry): a transmural scar core in the inferolateral mid wall with
+  // one slow-conducting isthmus crossing it circumferentially; Purkinje fibres over the scar are lost.
+  const scarL = 0.45 * A.lvOuterL;
+  const scarPhi = (-135 * Math.PI) / 180;
+  const rMid = (lvOuterRadius(scarL) + A.lvInnerR * Math.sqrt(Math.max(0, 1 - (scarL * scarL) / (A.lvInnerL * A.lvInnerL)))) / 2;
+  const scarC = fromLocal(f, scarL, rMid * Math.cos(scarPhi), rMid * Math.sin(scarPhi));
+  const tangent = normalize(sub(fromLocal(f, scarL, rMid * Math.cos(scarPhi + 0.1), rMid * Math.sin(scarPhi + 0.1)), scarC));
+  const lineDist = (p: Vec3) => {
+    const v = sub(p, scarC);
+    const t = v[0] * tangent[0] + v[1] * tangent[1] + v[2] * tangent[2];
+    return Math.hypot(v[0] - t * tangent[0], v[1] - t * tangent[1], v[2] - t * tangent[2]);
+  };
+  const SCAR_R = 17;
+  const scarCore: number[] = [];
+  const scarIsthmus: number[] = [];
+  const scarBorder: number[] = [];
+  for (const i of vent) {
+    const p = nodePos(B, i);
+    const dd = dist(p, scarC);
+    if (dd > SCAR_R && dd <= SCAR_R + 6) scarBorder.push(i);
+    if (dd > SCAR_R) continue;
+    if (lineDist(p) < 3.2) scarIsthmus.push(i);
+    else scarCore.push(i);
+  }
+  const scarPurkinje: number[] = [];
+  for (let i = nMyo; i < B.cellType.length; i++) if (B.cellType[i] === CT.PURKINJE && B.region[i] === RG.PURK_LV && dist(nodePos(B, i), scarC) < SCAR_R + 7) scarPurkinje.push(i);
+  // pacing site just beyond one end of the isthmus (for programmed stimulation)
+  const isthEnd = add(scarC, scale(tangent, SCAR_R + 4));
+  const coreSet = new Set(scarCore);
+  const isthSet = new Set(scarIsthmus);
+  ectopicSites["scar-border"] = nearest(vent, isthEnd, (i) => !coreSet.has(i) && !isthSet.has(i) && B.region[i] === RG.LV);
+  const substrates: Record<string, number[]> = { tvCap, svc, ivc, intercaval, cti, scarCore, scarIsthmus, scarBorder, scarPurkinje };
+
   return {
     san,
     avn,
@@ -310,5 +371,6 @@ export function buildConductionSystem(
     paths,
     links,
     ectopicSites,
+    substrates,
   };
 }

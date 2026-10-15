@@ -114,7 +114,8 @@ export function measureBeats(ecg: Float32Array, dt: number, i0: number, waves: W
       if ((on - kMin) * dt >= 8 && G[on] - G[kMin] > 0.1) on = kMin;
     }
     let off = p;
-    while (off < n - 2 && !(D[off] < lowOn && D[off + 1] < lowOn && D[off + 2] < lowOn)) off++;
+    const lowOff = 0.025 * peak; // offset: 2.5 % of peak slope (captures slow terminal forces, e.g. RBBB)
+    while (off < n - 2 && !(D[off] < lowOff && D[off + 1] < lowOff && D[off + 2] < lowOff)) off++;
     // Very broad (> 170 ms) complexes: repolarisation can begin before D reaches 4 % (no isoelectric ST). Take the
     // first pronounced minimum of D (< 12 % of peak, followed by a rise of > 50 %) if it comes earlier.
     if ((off - on) * dt > 170) {

@@ -113,6 +113,8 @@ export interface CardiacModel {
   links: LumpedLink[];
   /** Named ectopic / pacing sites → node index. */
   ectopicSites: Record<string, number>;
+  /** Named node sets for optional arrhythmia substrates (flutter anatomy, scar). */
+  substrates: Record<string, Int32Array>;
   /** Frame used to build the anatomy. */
   frame: { baseCenter: Vec3; axis: Vec3; septalDir: Vec3; anteriorDir: Vec3 };
   counts: { atrial: number; ventricular: number; conduction: number };

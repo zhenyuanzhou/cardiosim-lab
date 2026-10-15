@@ -185,6 +185,51 @@ test.describe("CardioSim Lab", () => {
   });
 });
 
+test.describe("premature beats and atrial arrhythmias", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+    await page.waitForFunction(() => (window as any).__cardiosim?.store.getState().ready, null, { timeout: 30_000 });
+    await page.evaluate(() => (window as any).__cardiosim.store.getState().set({ speed: 4 }));
+  });
+  const ectopicV = (page: Page) =>
+    page.evaluate(() => [...(window as any).__cardiosim.sim.data.waves.values()].filter((w: any) => w.origin === "ectopic" && Number.isFinite(w.tFirstVent)).length);
+
+  test("Fire one premature beat produces exactly one ectopic QRS on the ECG", async ({ page }) => {
+    await page.click('[data-tab="scenarios"]');
+    await page.waitForTimeout(2500);
+    await page.click('[data-testid="fire-ectopic"]');
+    await page.waitForTimeout(6000);
+    expect(await ectopicV(page)).toBe(1);
+    // the ectopic complex is detected on the ECG and labelled with its origin
+    const origins = await page.evaluate(() => (window as any).__cardiosim.sim.data.measure().map((b: any) => b.origin));
+    expect(origins.some((o: string) => o && o.startsWith("ectopic"))).toBe(true);
+  });
+
+  test("bigeminy and trigeminy buttons produce coupled ectopic beats", async ({ page }) => {
+    await page.click('[data-tab="scenarios"]');
+    await page.waitForTimeout(1500);
+    await page.click('[data-testid="ectopy-quick"] [data-pattern="bigeminy"]');
+    await page.waitForTimeout(8000);
+    const n1 = await ectopicV(page);
+    expect(n1).toBeGreaterThanOrEqual(3);
+    await page.click('[data-testid="ectopy-quick"] [data-pattern="trigeminy"]');
+    await page.waitForTimeout(8000);
+    expect(await ectopicV(page)).toBeGreaterThan(n1);
+  });
+
+  test("atrial flutter and fibrillation scenarios report rhythm-level measurements", async ({ page }) => {
+    await page.click('[data-tab="scenarios"]');
+    await page.click('[data-scenario="flutter"]');
+    await page.click('[data-testid="scenario-load"]');
+    await page.waitForTimeout(12000);
+    await expect(page.locator('[data-testid="rhythm-note"]')).toContainText("flutter-wave rate", { timeout: 20_000 });
+    await page.click('[data-scenario="af"]');
+    await page.click('[data-testid="scenario-load"]');
+    await page.waitForTimeout(12000);
+    await expect(page.locator('[data-testid="rhythm-note"]')).toContainText("A single RR or PR is not meaningful", { timeout: 20_000 });
+  });
+});
+
 test.describe("responsive layout", () => {
   test.use({ viewport: { width: 390, height: 844 } });
   test("phone width: no horizontal page scroll and the ECG fills its width", async ({ page }) => {

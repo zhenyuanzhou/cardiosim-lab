@@ -35,6 +35,43 @@ export function apdFromDI(apdInf: number, apdRef: number, di: number): number {
   return Math.max(APD_FLOOR_FRACTION * apdRef, apdInf * rho(di));
 }
 
+/**
+ * Two-component restitution (Phase 2, replaces the single map for dynamic behaviour).
+ *
+ * Franz et al. 1988 (J Clin Invest 82:972, doi:10.1172/JCI113706) report that in humans
+ * (a) steady-state APD rises ≈ 23 ms per 100 ms of cycle length, (b) after a rate step the
+ * first APD changes abruptly but full adaptation takes minutes, and (c) the extrastimulus
+ * restitution curve rises steeply at short coupling and then plateaus. The single fitted MS map
+ * reproduces (a) only; used dynamically it gave unphysiologically short APDs for premature
+ * beats (≈ 135 ms at DI 100 ms). Here:
+ *   APD = APDref · S(CL_mem) · (1 − A·exp(−DI/τf))
+ * S = steady-state scale from the fitted map (keeps (a)); CL_mem = per-cell exponentially
+ * weighted cycle length (memory); the fast term gives the steep initial rise of (c).
+ * A, τf and the memory weight are NOMINAL (shape-matched, not fitted): see SCIENTIFIC_LIMITATIONS.
+ * Memory adapts within ≈ 4–8 beats, much faster than the minutes reported in humans.
+ */
+export const DYNAMIC_RESTITUTION = { amplitude: 0.35, tau: 50, memoryWeight: 0.25 };
+const SS_LUT_MIN = 150;
+const SS_LUT_STEP = 10;
+const SS_LUT: Float32Array = (() => {
+  const n = Math.round((3000 - SS_LUT_MIN) / SS_LUT_STEP) + 1;
+  const lut = new Float32Array(n);
+  const inf = apdInfFromRef(300);
+  for (let k = 0; k < n; k++) lut[k] = steadyStateApd(inf, 300, SS_LUT_MIN + k * SS_LUT_STEP) / 300;
+  return lut;
+})();
+/** Steady-state APD / APDref at cycle length cl (from the fitted map; APDref is defined at CL 1000). */
+export function steadyStateScale(cl: number): number {
+  const f = (Math.min(3000, Math.max(SS_LUT_MIN, cl)) - SS_LUT_MIN) / SS_LUT_STEP;
+  const k = Math.min(SS_LUT.length - 2, Math.floor(f));
+  return SS_LUT[k] + (SS_LUT[k + 1] - SS_LUT[k]) * (f - k);
+}
+export function apdDynamic(apdRef: number, clMem: number, di: number): number {
+  const { amplitude, tau } = DYNAMIC_RESTITUTION;
+  const a = apdRef * steadyStateScale(clMem) * (1 - amplitude * Math.exp(-Math.max(0, di) / tau));
+  return Math.max(APD_FLOOR_FRACTION * apdRef, a);
+}
+
 /** Steady-state APD at a given cycle length (fixed-point iteration). */
 export function steadyStateApd(apdInf: number, apdRef: number, cl: number): number {
   let a = Math.min(apdRef, 0.6 * cl);

@@ -21,6 +21,8 @@ export interface ModelMeta {
   ventEscape: number;
   dt: number;
   frame: { axis: number[]; septalDir: number[]; anteriorDir: number[] };
+  ectopicSites: Record<string, number>;
+  substrates: Record<string, Int32Array>;
 }
 
 export interface CompareRun {

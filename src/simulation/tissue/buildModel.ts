@@ -268,6 +268,7 @@ export function buildCardiacModel(h = 2.5): CardiacModel {
     avnAtrialInputs: Int32Array.from(cs.avnInputs),
     links: cs.links,
     ectopicSites: cs.ectopicSites,
+    substrates: Object.fromEntries(Object.entries(cs.substrates).map(([k, v]) => [k, Int32Array.from(v)])),
     conductionPaths: cs.paths,
     probes,
     frame: { baseCenter: sub(f.base, shift), axis: f.d, septalDir: f.u0, anteriorDir: f.u1 },

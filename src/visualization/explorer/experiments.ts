@@ -4,6 +4,7 @@
  * the simulator from the changed activation/recovery sequence.
  */
 import { DEFAULT_PARAMS, cloneParams, type SimParams } from "../../simulation/core/params";
+import { SCENARIOS } from "../../simulation/scenarios/scenarios";
 
 export interface ExperimentVariant {
   id: string;
@@ -130,6 +131,26 @@ export const EXPERIMENTS: Experiment[] = [
     ],
   },
 ];
+
+const fromScenario = (id: string, label: string, look: string, leads: string[]): ExperimentVariant => ({
+  id: `G-${id}`,
+  label,
+  look,
+  leads,
+  params: () => SCENARIOS.find((x) => x.id === id)!.apply!(),
+});
+EXPERIMENTS.push({
+  id: "G",
+  title: "G · Atrial flutter and fibrillation",
+  short: "G atrial",
+  summary: "Re-entrant atrial arrhythmias: a single macro-re-entrant wave around the tricuspid annulus (flutter) versus multiple wavelets driven by a pulmonary-vein focus (fibrillation). Watch the atria in the 3-D view and the regularity of the ventricular response.",
+  fidelity: "Mechanistic re-entry on an idealised atrial geometry; wavelet dynamics qualitative",
+  variants: [
+    fromScenario("nsr", "Sinus rhythm", "One wavefront per beat from the SA node.", ["II", "V1"]),
+    fromScenario("flutter", "Typical flutter", "Regular atrial waves at ≈ 330/min; fixed AV conduction ratio.", ["II", "V1"]),
+    fromScenario("af", "Atrial fibrillation", "Irregular atrial activation, no P waves, irregularly irregular RR.", ["II", "V1"]),
+  ],
+});
 
 export function findVariant(id: string): ExperimentVariant | undefined {
   for (const e of EXPERIMENTS) for (const x of e.variants) if (x.id === id) return x;

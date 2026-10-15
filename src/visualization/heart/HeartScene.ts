@@ -9,6 +9,7 @@
  * inverse-distance blend of the 4 nearest simulation cells.
  */
 import * as THREE from "three";
+import { substrateMasks } from "../../simulation/core/derive";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CT, RG, REGION_NAMES } from "../../simulation/core/model";
 import { SHAPES, repolMidpoint } from "../../simulation/cellular/actionPotential";
@@ -60,6 +61,8 @@ const C = {
   pathLive: [1, 1, 1] as RGB,
   pathDep: [1.0, 0.66, 0.2] as RGB,
   highlight: [0.2, 0.95, 1.0] as RGB,
+  /** Non-conducting tissue of an active substrate (valve annulus, caval orifices, block line, scar). */
+  scar: [0.32, 0.32, 0.34] as RGB,
 };
 export const LAYER_COLORS = C;
 const AT_STOPS: [number, RGB][] = [
@@ -154,6 +157,8 @@ export class HeartScene {
   /** Great vessels: anatomical context only (not part of the electrical model). */
   readonly vessels = new THREE.Group();
   private radius = 90;
+  private subKey = "";
+  private blockedMask: Uint8Array | null = null;
   private lastPreset: ViewPreset = "anterior";
   private userMoved = false;
   private labelLayer: HTMLDivElement;
@@ -525,9 +530,15 @@ export class HeartScene {
         if (wv.t0 <= t) wave = { id: wv.id, tA: Number.isFinite(wv.tFirstAtrial) ? wv.tFirstAtrial : wv.t0, tV: Number.isFinite(wv.tFirstVent) ? wv.tFirstVent : wv.t0 };
     }
     const hl = this.highlight ? new Set(this.highlight.nodes) : null;
+    const subKey = `${params.atria.flutterSubstrate}|${params.ventricles.scar}`;
+    if (subKey !== this.subKey) {
+      this.subKey = subKey;
+      this.blockedMask = params.atria.flutterSubstrate || params.ventricles.scar ? substrateMasks(meta, params).blocked : null;
+    }
+    const blocked = this.blockedMask;
     for (let i = 0; i < meta.n; i++) {
       const ct = meta.cellType[i];
-      const base = ct === CT.ATRIAL || ct === CT.VENTRICULAR ? baseColor(meta.region[i], L.anatomy) : C.pathIdle;
+      const base = blocked && blocked[i] ? C.scar : ct === CT.ATRIAL || ct === CT.VENTRICULAR ? baseColor(meta.region[i], L.anatomy) : C.pathIdle;
       let col: RGB = base;
       const r = data.lastActIndex(i, t);
       if (r >= 0) {

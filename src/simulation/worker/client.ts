@@ -8,6 +8,7 @@ import type { SimParams } from "../core/params";
 import type { WaveInfo } from "../core/engine";
 import { N_CHANNELS } from "../ecg-forward/leadField";
 import { measureBeats, type BeatMeasurement } from "../ecg-forward/measurements";
+import { summariseRhythm, type RhythmSummary } from "../ecg-forward/rhythm";
 import type { FromWorker, ModelMeta, ToWorker } from "./protocol";
 import type { SurfaceMesh } from "../tissue/surfaces";
 import SimWorker from "./simWorker?worker&inline";
@@ -190,6 +191,13 @@ export class SimData {
   }
 
   /** Signal-derived beat measurements over the retained history (cached per version). */
+  /** Multi-beat rhythm summary over the window ending at t (default 6 s). */
+  rhythm(atrialNodes: number[], t: number, win = 6000): RhythmSummary {
+    const times = atrialNodes.map((n) => this.nodeActs[n].map((r) => this.recT[r]).filter((x) => x > t - win && x <= t));
+    const qrs = this.measure().map((b) => b.qrsOn).filter((x) => x > t - win && x <= t);
+    return summariseRhythm(times, qrs);
+  }
+
   measure(): BeatMeasurement[] {
     if (this.beatsVersion === this.version) return this.beats;
     const ns = this.sampleEnd - this.sampleOffset;

@@ -217,7 +217,7 @@ export function ParameterPanel() {
         </div>
       ))}
       {PARAM_GROUPS.map((g) => {
-        const items = PARAM_META.filter((m) => m.group === g && match(m));
+        const items = PARAM_META.filter((m) => m.group === g && m.path !== "ectopy.shot" && !m.path.startsWith("ventricles.scar") && !m.path.startsWith("ventricles.isthmus") && !m.path.startsWith("ventricles.border") && match(m));
         if (!items.length) return null;
         return (
           <details key={g} className="group" open={!!ql || g === "Pacemaker function" || g === "His–Purkinje system"}>

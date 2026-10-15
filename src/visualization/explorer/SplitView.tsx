@@ -11,7 +11,7 @@ import { LeadInfoCard } from "./LeadInfoCard";
 import { APPanel } from "../action-potentials/APPanel";
 import { Panel } from "../../components/layout/Panel";
 import { Split } from "../../components/layout/Split";
-import { ExperimentsMenu } from "./ExperimentsMenu";
+import { EctopyMenu, ExperimentsMenu } from "./ExperimentsMenu";
 
 export function SplitView() {
   const max = useStore((s) => s.maximized);
@@ -67,6 +67,7 @@ export function SplitView() {
       <div className="explorer-bar">
         <LeadPicker />
         <span className="spacer" />
+        <EctopyMenu />
         <ExperimentsMenu />
       </div>
       {max && byId[max] ? (

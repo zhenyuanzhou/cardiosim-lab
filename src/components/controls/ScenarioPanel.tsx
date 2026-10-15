@@ -2,6 +2,7 @@ import { useState } from "react";
 import { SCENARIOS, type Criteria, type ScenarioStatus } from "../../simulation/scenarios/scenarios";
 import { useStore } from "../../state/store";
 import { applyLive, restart } from "../../state/actions";
+import { EctopyQuick } from "./EctopyQuick";
 
 const STATUS_LABEL: Record<ScenarioStatus, string> = {
   validated: "implemented · validated",
@@ -37,6 +38,7 @@ export function ScenarioPanel() {
   };
   return (
     <>
+      <EctopyQuick />
       <p className="note">
         Every runnable scenario is a parameter set for the same simulator — no stored waveforms. Status:{" "}
         {(Object.keys(STATUS_LABEL) as ScenarioStatus[])

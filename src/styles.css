@@ -417,3 +417,6 @@ details.group > summary { cursor: pointer; padding: 6px 8px; font: 600 12px/1.2 
 .stack .ecg-lower { flex: none; }
 .stack .panel-body { overflow: visible; }
 @media (min-width: 760px) { .stack .ecg-canvas.mode-12lead { aspect-ratio: 250 / 172; } }
+.ectopy-quick .toolbar label { gap: 6px; }
+.ectopy-quick input[type="range"] { width: 120px; accent-color: var(--accent); }
+.exp-pop .ectopy-quick { border: 0; background: transparent; padding: 0; }

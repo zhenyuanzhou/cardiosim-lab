@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-15T15:33:43.765Z",
+  "generated": "2026-10-15T20:37:38.614Z",
   "statusClasses": [
     "validated",
     "incomplete",
@@ -494,47 +494,47 @@
     },
     {
       "id": "flutter",
-      "name": "Atrial flutter",
+      "name": "Typical atrial flutter (macro-re-entry around the tricuspid annulus)",
       "group": "C · Supraventricular",
-      "status": "unsupported",
-      "modelClass": "none",
+      "status": "validated",
+      "modelClass": "mechanistic",
       "criteria": {
-        "mechanism": false,
-        "initialization": false,
-        "activationSequence": false,
-        "ecg": false,
-        "actionPotential": false,
-        "explanation": false,
-        "validation": false,
-        "ui": false
+        "mechanism": true,
+        "initialization": true,
+        "activationSequence": true,
+        "ecg": true,
+        "actionPotential": true,
+        "explanation": true,
+        "validation": true,
+        "ui": true
       },
-      "complete": false,
-      "runnable": false,
-      "changes": "—",
-      "limitations": "Not runnable. Requires: a macro-re-entrant circuit with an anatomical obstacle (tricuspid annulus, crista terminalis line of block) and slow cavotricuspid isthmus conduction; the idealised spherical atria have no such barriers.",
-      "validation": "Not applicable (no model)."
+      "complete": true,
+      "runnable": true,
+      "changes": "Flutter anatomy on (CTI CV × 0.2, CTI APD × 1.3); burst of 6 stimuli at 230 ms from the low RA after every 3rd sinus beat until re-entry starts.",
+      "limitations": "Spherical idealised atria: the circuit is shorter than in a real RA, so a slow isthmus (CV × 0.2, nominal) is needed to obtain a cycle length of ≈ 180 ms (≈ 330/min, near the upper part of the usual human range). Flutter-wave morphology on the surface ECG is not validated (no saw-tooth calibration).",
+      "validation": "Automated test: \"atrial flutter\" (tests/physiology/scenarios.test.ts)."
     },
     {
       "id": "af",
-      "name": "Atrial fibrillation",
+      "name": "Atrial fibrillation (PV-triggered, remodelled atria)",
       "group": "C · Supraventricular",
-      "status": "unsupported",
-      "modelClass": "none",
+      "status": "validated",
+      "modelClass": "reduced-order",
       "criteria": {
-        "mechanism": false,
-        "initialization": false,
-        "activationSequence": false,
-        "ecg": false,
-        "actionPotential": false,
-        "explanation": false,
-        "validation": false,
-        "ui": false
+        "mechanism": true,
+        "initialization": true,
+        "activationSequence": true,
+        "ecg": true,
+        "actionPotential": true,
+        "explanation": true,
+        "validation": true,
+        "ui": true
       },
-      "complete": false,
-      "runnable": false,
-      "changes": "—",
-      "limitations": "Not runnable. Requires: a fine atrial mesh with source–sink effects and wavebreak (monodomain / ionic tissue model); an event-driven graph cannot represent multiple-wavelet or rotor dynamics faithfully.",
-      "validation": "Not applicable (no model)."
+      "complete": true,
+      "runnable": true,
+      "changes": "PV focus 450/min (CL 133 ms); atrial APD map heterogeneity SD 40 %, atrial CV 0.45 m/s, atrial reference APD 300 ms (calibrated, see limitations); AV-nodal concealment 0.25; sympathetic tone 0.3.",
+      "limitations": "Event-driven graph without source–sink or curvature effects, so wavelet dynamics are qualitative. The atrial reference APD (300 ms at CL 1000) was chosen so the emergent RA cycle length (≈ 170–240 ms) lies near reported human AF cycle lengths (e.g. coronary-sinus AFCL 171 ± 27 ms, Verma et al. 2008); the APD rate map below CL 400 ms is extrapolated. Concealment and heterogeneity magnitudes are nominal. f-wave morphology is not validated.",
+      "validation": "Automated test: \"atrial fibrillation\" (tests/physiology/scenarios.test.ts)."
     },
     {
       "id": "vt-focal",
@@ -577,7 +577,7 @@
       "complete": false,
       "runnable": false,
       "changes": "—",
-      "limitations": "Not runnable. Requires: a scar region with a slow-conducting isthmus and conduction block lines; planned as an extension of the tissue graph (regional CV and block masks), not yet implemented.",
+      "limitations": "Not runnable. Requires: a validated scar/isthmus geometry. A prototype exists (transmural LV scar with one slow isthmus and a slow border zone; hidden parameters ventricles.scar/isthmus*/border*), but in this event-driven graph it either re-entered spontaneously around the scar at an implausibly short cycle length (≈ 190 ms) or could not be induced by programmed stimulation — so it is not offered.",
       "validation": "Not applicable (no model)."
     },
     {

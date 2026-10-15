@@ -116,7 +116,9 @@ export function layoutEcg(o: EcgViewOpts, t: number): EcgLayout {
   const pxPerMm = Math.max(1.5, availW / 250) * o.zoom;
   const durMs = (availW / pxPerMm / o.paperSpeed) * 1000;
   const rowH = availH / leads.length;
-  const t1 = Math.max(t, durMs);
+  // monitor-style page sweep: the page stays fixed while the cursor moves (no scrolling jitter)
+  const pageStart = Math.floor(t / durMs) * durMs;
+  const t1 = pageStart + durMs;
   const strips = leads.map((name, k) => ({
     lead: idx(name),
     label: name,
@@ -128,7 +130,7 @@ export function layoutEcg(o: EcgViewOpts, t: number): EcgLayout {
     t0: t1 - durMs,
     t1,
   }));
-  return { pxPerMm, plotX: padL, plotY: padT, plotW: availW, plotH: availH, strips, pageStart: t1 - durMs, pageDur: durMs };
+  return { pxPerMm, plotX: padL, plotY: padT, plotW: availW, plotH: availH, strips, pageStart, pageDur: durMs };
 }
 
 export interface Painter {

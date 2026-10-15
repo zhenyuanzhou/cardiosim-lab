@@ -548,8 +548,50 @@ export const SCENARIOS: Scenario[] = [
     leads: ["I", "II", "V1"],
     apply: P((p) => (p.accessory = { ...p.accessory, site: "ap-left-lateral", antegrade: true })),
   },
-  unsupported("flutter", "Atrial flutter", "C · Supraventricular", "a macro-re-entrant circuit with an anatomical obstacle (tricuspid annulus, crista terminalis line of block) and slow cavotricuspid isthmus conduction; the idealised spherical atria have no such barriers."),
-  unsupported("af", "Atrial fibrillation", "C · Supraventricular", "a fine atrial mesh with source–sink effects and wavebreak (monodomain / ionic tissue model); an event-driven graph cannot represent multiple-wavelet or rotor dynamics faithfully."),
+  {
+    id: "flutter",
+    name: "Typical atrial flutter (macro-re-entry around the tricuspid annulus)",
+    group: "C · Supraventricular",
+    status: "validated",
+    modelClass: "mechanistic",
+    criteria: ALL,
+    mechanism: "Anatomical macro-re-entry in the right atrium. The tricuspid annulus, the venae cavae and a line of block between them (posterior to the crista terminalis) are non-conducting; the cavotricuspid isthmus (CTI) conducts slowly and has a longer refractory period. Burst pacing from the low lateral RA blocks in the isthmus in one direction; the wave travels around the annulus and re-enters the recovered isthmus.",
+    structures: "Right atrium (tricuspid annulus, CTI, venae cavae, intercaval line), left atrium (passive), AV node.",
+    changes: "Flutter anatomy on (CTI CV × 0.2, CTI APD × 1.3); burst of 6 stimuli at 230 ms from the low RA after every 3rd sinus beat until re-entry starts.",
+    activation: "A single wavefront circulates around the tricuspid annulus every cycle; the left atrium is activated passively; the AV node conducts every 2nd–3rd flutter wave.",
+    ecg: "Continuous, regular atrial activity without an isoelectric baseline (flutter waves) at a fixed rate; regular or regularly-irregular ventricular response with a fixed conduction ratio; PR not defined.",
+    initiation: "Burst pacing (programmed-stimulation analogue). Sustained until parameters change (e.g. switch the flutter anatomy off = ablation of the isthmus line: re-entry stops).",
+    limitations: "Spherical idealised atria: the circuit is shorter than in a real RA, so a slow isthmus (CV × 0.2, nominal) is needed to obtain a cycle length of ≈ 180 ms (≈ 330/min, near the upper part of the usual human range). Flutter-wave morphology on the surface ECG is not validated (no saw-tooth calibration).",
+    validation: T("atrial flutter"),
+    leads: ["II", "V1", "aVF"],
+    apply: P((p) => {
+      p.atria.flutterSubstrate = true;
+      p.ectopy = { ...p.ectopy, site: "ra-low", pattern: "run", runLength: 6, coupling: 230, every: 3 };
+    }),
+  },
+  {
+    id: "af",
+    name: "Atrial fibrillation (PV-triggered, remodelled atria)",
+    group: "C · Supraventricular",
+    status: "validated",
+    modelClass: "reduced-order",
+    criteria: ALL,
+    mechanism: "A rapidly firing pulmonary-vein (posterior LA) focus drives atria with spatially heterogeneous refractoriness and slowed conduction. Activation breaks up into multiple re-entrant wavelets (fibrillatory conduction) that persist after the focus stops. The AV node receives rapid irregular input; concealed conduction makes the ventricular response irregular.",
+    structures: "Posterior LA (PV focus), both atria (heterogeneous APD, slowed CV), AV node (concealed conduction), ventricles.",
+    changes: "PV focus 450/min (CL 133 ms); atrial APD map heterogeneity SD 40 %, atrial CV 0.45 m/s, atrial reference APD 300 ms (calibrated, see limitations); AV-nodal concealment 0.25; sympathetic tone 0.3.",
+    activation: "Irregular, rapidly changing atrial activation with wave break; faster activation near the PV driver (LA) than in the RA; irregular His and ventricular activation.",
+    ecg: "No P waves; irregular baseline; irregularly irregular RR intervals; normal QRS. PR is not defined.",
+    initiation: "Immediate. Switching the focus off (Premature beats → Stop) leaves fibrillation sustained by re-entry in this substrate.",
+    limitations: "Event-driven graph without source–sink or curvature effects, so wavelet dynamics are qualitative. The atrial reference APD (300 ms at CL 1000) was chosen so the emergent RA cycle length (≈ 170–240 ms) lies near reported human AF cycle lengths (e.g. coronary-sinus AFCL 171 ± 27 ms, Verma et al. 2008); the APD rate map below CL 400 ms is extrapolated. Concealment and heterogeneity magnitudes are nominal. f-wave morphology is not validated.",
+    validation: T("atrial fibrillation"),
+    leads: ["II", "V1", "V5"],
+    apply: P((p) => {
+      Object.assign(p.atria, { apd: 300, cv: 0.45, heterogeneity: 0.4 });
+      p.avNode.concealment = 0.25;
+      p.sinus.sympatheticTone = 0.3;
+      p.ectopy = { ...p.ectopy, site: "la", pattern: "focus", rate: 450, coupling: 300 };
+    }),
+  },
   // ---------------------------------------------------------------- Group D
   {
     id: "vt-focal",
@@ -569,7 +611,7 @@ export const SCENARIOS: Scenario[] = [
     leads: ["II", "V1", "V6"],
     apply: P((p) => (p.ectopy = { ...p.ectopy, site: "rvot", pattern: "focus", rate: 170, coupling: 300 })),
   },
-  unsupported("vt-scar", "Scar-related re-entrant VT", "D · Ventricular", "a scar region with a slow-conducting isthmus and conduction block lines; planned as an extension of the tissue graph (regional CV and block masks), not yet implemented."),
+  unsupported("vt-scar", "Scar-related re-entrant VT", "D · Ventricular", "a validated scar/isthmus geometry. A prototype exists (transmural LV scar with one slow isthmus and a slow border zone; hidden parameters ventricles.scar/isthmus*/border*), but in this event-driven graph it either re-entered spontaneously around the scar at an implausibly short cycle length (≈ 190 ms) or could not be induced by programmed stimulation — so it is not offered."),
   unsupported("pvt", "Polymorphic VT", "D · Ventricular", "dynamically changing re-entry (wavebreak) — needs a continuum/ionic tissue model."),
   unsupported("tdp", "Torsades de pointes", "D · Ventricular", "EAD-triggered activity arising in tissue with prolonged, heterogeneous repolarisation and the resulting re-entry; the ionic single-cell model can show EADs but tissue coupling is not implemented."),
   unsupported("vf", "Ventricular fibrillation", "D · Ventricular", "multiple re-entrant wavelets / rotors with wavebreak — needs a monodomain or bidomain ionic tissue model."),

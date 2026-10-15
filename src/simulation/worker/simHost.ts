@@ -77,6 +77,8 @@ export class SimHost {
       ventEscape: model.ventEscape,
       dt,
       frame: { axis: model.frame.axis, septalDir: model.frame.septalDir, anteriorDir: model.frame.anteriorDir },
+      ectopicSites: model.ectopicSites,
+      substrates: model.substrates,
     };
     this.post({ type: "ready", meta, buildMs });
     this.start(params, dt);

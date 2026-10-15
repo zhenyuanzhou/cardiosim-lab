@@ -19,7 +19,7 @@ import { cloneParams, isAtrialSite, type SimParams } from "./params";
 import { derive, type Derived } from "./derive";
 import { EV_AUTO, EV_EXCITE, EventQueue, type QueueSnapshot } from "./eventQueue";
 import { Rng } from "./rng";
-import { SHAPES, apdFromDI, repolMidpoint, steadyStateApd, ventricularNotchScale, workingA } from "../cellular/actionPotential";
+import { DYNAMIC_RESTITUTION, SHAPES, apdDynamic, repolMidpoint, steadyStateScale, ventricularNotchScale, workingA } from "../cellular/actionPotential";
 import { N_CHANNELS, N_COLS, columnsToChannels, computeLeadField } from "../ecg-forward/leadField";
 
 export type WaveOrigin = "sinus" | "junctional" | "ventricular-escape" | "ectopic" | "retrograde" | "reentry";
@@ -107,6 +107,7 @@ export interface SimSnapshot {
   erp: Float32Array;
   lastWave: Int32Array;
   t50: Float32Array;
+  clMem: Float32Array;
   linkLastExit: Float64Array;
   linkLastEntry: Float64Array;
   linkDir: Int8Array;
@@ -151,6 +152,8 @@ export class Simulator {
   erp: Float32Array;
   t50: Float32Array;
   lastWave: Int32Array;
+  /** Per-cell cycle-length memory (ms) for APD adaptation. */
+  clMem: Float32Array;
   /** Lumped-link state (model.links order). */
   linkLastExit: Float64Array;
   linkLastEntry: Float64Array;
@@ -200,6 +203,7 @@ export class Simulator {
     this.erp = new Float32Array(n);
     this.t50 = new Float32Array(n);
     this.lastWave = new Int32Array(n);
+    this.clMem = new Float32Array(n).fill(1000);
     this.active = new Int32Array(n);
     this.inActive = new Uint8Array(n);
     this.notchScale = new Float32Array(n);
@@ -229,7 +233,8 @@ export class Simulator {
     const n = this.model.n;
     const cl = this.d.sinusCycle;
     for (let i = 0; i < n; i++) {
-      const ss = steadyStateApd(this.d.apdInf[i], this.d.apdRef[i], cl);
+      const ss = this.d.apdRef[i] * steadyStateScale(cl);
+      this.clMem[i] = cl;
       this.apd[i] = ss;
       this.erp[i] = ss * this.d.erpRatio[i];
       // as if activated one cycle before t = 0, at a typical sinus-beat activation time for the cell type
@@ -421,6 +426,12 @@ export class Simulator {
     const w = this.waves.get(wave);
     const isAvn = link.id === "avn-fast" || link.id === "avn-slow";
     if (R < erp) {
+      if (ante && L.concealment > 0 && R >= 0.6 * erp && this.linkLastExit[li] <= t) {
+        // concealed conduction: partial penetration pushes the recovery reference forward
+        const phi = (R - 0.6 * erp) / (0.4 * erp);
+        if (L.recoveryFrom === "exit") this.linkLastExit[li] += L.concealment * phi * (t - this.linkLastExit[li]);
+        else this.linkLastEntry[li] += L.concealment * phi * (t - this.linkLastEntry[li]);
+      }
       if (w && ante && isAvn && !w.avnBlocked && Number.isNaN(w.tAvnOut)) {
         w.avnBlocked = true;
         w.tAvnIn = t;
@@ -459,11 +470,18 @@ export class Simulator {
     for (const i of ante ? link.lower : link.upper) this.queue.push(exit, i, link.node, outWave, EV_EXCITE, transit);
   }
 
+  /** Per-cell cycle-length memory for APD adaptation (call after prevAct has been set). */
+  private updateMemory(node: number, t: number): void {
+    const c = t - this.prevAct[node];
+    if (c > 0) this.clMem[node] += DYNAMIC_RESTITUTION.memoryWeight * (Math.min(3000, Math.max(150, c)) - this.clMem[node]);
+  }
+
   private activateRecordOnly(node: number, t: number, wave: number): void {
     const di = t - (this.lastAct[node] + this.apd[node]);
     this.prevAct[node] = this.lastAct[node];
     this.lastAct[node] = t;
-    this.apd[node] = apdFromDI(this.d.apdInf[node], this.d.apdRef[node], di);
+    this.updateMemory(node, t);
+    this.apd[node] = apdDynamic(this.d.apdRef[node], this.clMem[node], di);
     this.erp[node] = this.apd[node] * this.d.erpRatio[node];
     this.lastWave[node] = wave;
     this.record(node, t, wave);
@@ -484,7 +502,8 @@ export class Simulator {
     const di = t - (this.lastAct[node] + this.apd[node]);
     this.prevAct[node] = this.lastAct[node];
     this.lastAct[node] = t;
-    const apd = apdFromDI(d.apdInf[node], d.apdRef[node], di);
+    this.updateMemory(node, t);
+    const apd = apdDynamic(d.apdRef[node], this.clMem[node], di);
     this.apd[node] = apd;
     this.erp[node] = apd * d.erpRatio[node];
     this.lastWave[node] = wave;
@@ -693,6 +712,7 @@ export class Simulator {
       erp: this.erp.slice(),
       lastWave: this.lastWave.slice(),
       t50: this.t50.slice(),
+      clMem: this.clMem.slice(),
       linkLastExit: this.linkLastExit.slice(),
       linkLastEntry: this.linkLastEntry.slice(),
       linkDir: this.linkDir.slice(),
@@ -718,6 +738,7 @@ export class Simulator {
     this.erp.set(s.erp);
     this.lastWave.set(s.lastWave);
     this.t50.set(s.t50);
+    this.clMem.set(s.clMem);
     this.linkLastExit.set(s.linkLastExit);
     this.linkLastEntry.set(s.linkLastEntry);
     this.linkDir.set(s.linkDir);

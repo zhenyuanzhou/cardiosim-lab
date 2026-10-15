@@ -7,7 +7,7 @@ import { TorsoScene } from "./TorsoScene";
 import { FrontalPlane, HorizontalPlane } from "./VectorDiagrams";
 import { LeadStrips } from "./LeadStrips";
 import { LeadInfoCard } from "./LeadInfoCard";
-import { ExperimentsMenu } from "./ExperimentsMenu";
+import { EctopyMenu, ExperimentsMenu } from "./ExperimentsMenu";
 import { Panel } from "../../components/layout/Panel";
 import { Split } from "../../components/layout/Split";
 import { LEAD_NAMES } from "../../simulation/ecg-forward/leadField";
@@ -163,6 +163,7 @@ export function ExplorerView() {
       <div className="explorer-bar">
         <LeadPicker />
         <span className="spacer" />
+        <EctopyMenu />
         <ExperimentsMenu />
       </div>
       {max && byId[max] ? (

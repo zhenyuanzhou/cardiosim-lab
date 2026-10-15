@@ -74,7 +74,7 @@ function ABStrips({ a, b, clockRef }: { a: SimData; b: SimData; clockRef: React.
         ctx.fillRect(0, 0, w, h);
         const t = clockRef.current;
         const win = 3000;
-        const start = Math.max(0, Math.min(DURATION - win, t - win * 0.7));
+        const start = Math.floor(t / win) * win; // page sweep (no scrolling jitter)
         const x0 = 44;
         const X = (tt: number) => x0 + ((tt - start) / win) * (w - x0 - 8);
         const rowH = h / leads.length;
