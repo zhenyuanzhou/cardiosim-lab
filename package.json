@@ -1,0 +1,34 @@
+{
+  "name": "cardiosim-lab",
+  "private": true,
+  "version": "0.1.0",
+  "description": "CardioSim Lab - interactive cardiac electrophysiology and 12-lead ECG simulator (research education / concept demonstration; not a clinical tool)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "build:standalone": "vite build --mode standalone",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "validate": "tsx scripts/validate-baseline.ts"
+  },
+  "dependencies": {
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "zustand": "5.0.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/node": "^22.18.1",
+    "@types/react": "19.1.12",
+    "@types/react-dom": "19.1.9",
+    "@vitejs/plugin-react": "5.0.2",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2",
+    "vite": "7.1.5",
+    "vite-plugin-singlefile": "2.3.0",
+    "vitest": "3.2.4"
+  }
+}
