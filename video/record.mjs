@@ -193,7 +193,7 @@ const SCENE = {
     const caps = [
       [880, "Bundle branch block, A/B side by side: A = normal, B = left bundle branch blocked", "Both runs: same anatomy, lead field and scaling — one parameter differs"],
       [1100, "B: the septum is activated from the right side → no septal q in I and V6", ""],
-      [1160, "B: the left ventricle is reached slowly through myocardium → broad QRS", "This model gives QRS ≈ 125 ms — shorter than typical clinical LBBB (documented limitation)"],
+      [1160, "B: the left ventricle is reached slowly through myocardium → broad QRS (≈ 140 ms here)", "Septal and left-ventricular activation are now in reverse order"],
       [1300, "Secondary ST–T change: repolarisation follows the late LV activation", ""],
     ];
     let ci = -1;

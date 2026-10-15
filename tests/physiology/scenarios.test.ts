@@ -277,6 +277,8 @@ describe("Bundle branch block", () => {
     expect(!Number.isFinite(l.tFirstLBB) || l.tFirstLBB > l.tFirstVent).toBe(true);
     expect([RG.RV, RG.SEPTUM]).toContain(model.region[l.firstVentNode]);
     expect(model.region[l.lastVentNode]).toBe(RG.LV);
+    // detector-measured QRS meets the conventional LBBB width criterion (≥ 140 ms, Strauss et al. 2011)
+    expect(median(sc("lbbb").beats.map((b) => b.qrs))).toBeGreaterThanOrEqual(140);
   });
 });
 
