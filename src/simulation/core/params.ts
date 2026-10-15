@@ -34,7 +34,13 @@ export interface SimParams {
     recoveryAmplitude: number; // ms, extra delay at R = ERP
     recoveryTau: number; // ms, recovery time constant
     erp: number; // ms, functional refractoriness measured as H-to-A recovery time
-    retrograde: boolean;
+    retrograde: RetroMode;
+    retroTime: number; // ms, minimum retrograde (V→A) nodal conduction time
+    retroErp: number; // ms, retrograde refractoriness (from the previous exit)
+    dualPathway: boolean;
+    slowAhMin: number; // ms, slow-pathway minimum conduction time
+    slowErp: number; // ms, slow-pathway refractoriness (from its previous invasion)
+    completeBlock: boolean;
   };
   hisPurkinje: {
     hisDelay: number; // ms, His bundle conduction time
@@ -45,6 +51,13 @@ export interface SimParams {
     purkinjeCv: number; // m/s, distal network
     pmjDelay: number; // ms, Purkinje-muscle junction delay
     apd: number; // ms, APD90 at CL 1000
+    rbbBlock: boolean;
+    lbbBlock: boolean;
+    lafBlock: boolean;
+    lpfBlock: boolean;
+    /** 0 = off; k ≥ 2 → every k-th antegrade impulse blocks below the His bundle (k:k−1). */
+    infraHisBlockEvery: number;
+    infraHisComplete: boolean;
   };
   ventricles: {
     cvLongitudinal: number; // m/s along fibres
@@ -63,7 +76,52 @@ export interface SimParams {
     limbGain: number; // dimensionless torso transfer factor for limb electrodes
     precordialGain: number; // dimensionless torso transfer factor for chest electrodes
   };
+  rhythm: {
+    sinusArrest: boolean;
+    /** 0 = off; k ≥ 2 → every k-th SA-node discharge fails to exit (type II SA exit block). */
+    saExitBlockEvery: number;
+  };
+  accessory: {
+    site: AccessorySite;
+    conductionTime: number; // ms
+    anteErp: number; // ms
+    retroErp: number; // ms
+    antegrade: boolean; // false = concealed (retrograde-only) pathway
+  };
+  ectopy: {
+    site: EctopicSite;
+    pattern: EctopyPattern;
+    coupling: number; // ms, from the preceding P onset (atrial) or QRS onset (ventricular)
+    every: number; // normal beats between ectopic events (single / couplet / run)
+    runLength: number; // ectopic beats per run
+    rate: number; // bpm, for the "focus" pattern
+  };
 }
+
+export type RetroMode = "conducted" | "concealed" | "blocked";
+export const ACCESSORY_SITES = ["none", "ap-left-lateral", "ap-posteroseptal", "ap-right-free-wall"] as const;
+export type AccessorySite = (typeof ACCESSORY_SITES)[number];
+export const ECTOPIC_SITES = ["none", "ra-high", "ra-low", "la", "rvot", "rv-apex", "septum", "lv-apex", "lv-lateral", "lv-anterobasal", "lv-inferobasal"] as const;
+export type EctopicSite = (typeof ECTOPIC_SITES)[number];
+export const ECTOPY_PATTERNS = ["single", "once", "bigeminy", "trigeminy", "couplet", "run", "focus"] as const;
+export type EctopyPattern = (typeof ECTOPY_PATTERNS)[number];
+export const SITE_LABELS: Record<string, string> = {
+  none: "None",
+  "ra-high": "High right atrium",
+  "ra-low": "Low right atrium (near CS ostium)",
+  la: "Left atrium (posterior)",
+  rvot: "RV outflow tract",
+  "rv-apex": "RV apex",
+  septum: "Mid interventricular septum",
+  "lv-apex": "LV apex",
+  "lv-lateral": "LV lateral wall",
+  "lv-anterobasal": "LV anterobasal",
+  "lv-inferobasal": "LV inferobasal",
+  "ap-left-lateral": "Left lateral",
+  "ap-posteroseptal": "Posteroseptal",
+  "ap-right-free-wall": "Right free wall",
+};
+export const isAtrialSite = (s: string) => s === "ra-high" || s === "ra-low" || s === "la";
 
 export const DEFAULT_PARAMS: SimParams = {
   schemaVersion: 1,
@@ -71,7 +129,19 @@ export const DEFAULT_PARAMS: SimParams = {
   sinus: { intrinsicRate: 92, vagalTone: 0.5, sympatheticTone: 0.1, exitDelay: 10 },
   escape: { junctionalRate: 45, ventricularRate: 30 },
   atria: { cv: 0.9, fastPathFactor: 1.6, apd: 220, erpRatio: 0.95 },
-  avNode: { ahMin: 65, recoveryAmplitude: 180, recoveryTau: 90, erp: 300, retrograde: true },
+  avNode: {
+    ahMin: 65,
+    recoveryAmplitude: 180,
+    recoveryTau: 90,
+    erp: 300,
+    retrograde: "concealed",
+    retroTime: 60,
+    retroErp: 250,
+    dualPathway: false,
+    slowAhMin: 200,
+    slowErp: 250,
+    completeBlock: false,
+  },
   hisPurkinje: {
     hisDelay: 18,
     lbbCv: 1.5,
@@ -81,6 +151,12 @@ export const DEFAULT_PARAMS: SimParams = {
     purkinjeCv: 3.0,
     pmjDelay: 8,
     apd: 330,
+    rbbBlock: false,
+    lbbBlock: false,
+    lafBlock: false,
+    lpfBlock: false,
+    infraHisBlockEvery: 0,
+    infraHisComplete: false,
   },
   ventricles: {
     cvLongitudinal: 0.6,
@@ -93,6 +169,9 @@ export const DEFAULT_PARAMS: SimParams = {
   },
   restitution: { cvAmplitude: 0.5, cvTau: 30 },
   forward: { limbGain: 2.5, precordialGain: 0.8 },
+  rhythm: { sinusArrest: false, saExitBlockEvery: 0 },
+  accessory: { site: "none", conductionTime: 15, anteErp: 280, retroErp: 260, antegrade: true },
+  ectopy: { site: "none", pattern: "single", coupling: 450, every: 4, runLength: 3, rate: 150 },
 };
 
 export type Evidence = "literature" | "calibrated" | "nominal";
@@ -115,8 +194,9 @@ export interface ParamMeta {
   source: string;
   /** Approximate physiological range used for warnings (inclusive). */
   physiologic?: [number, number];
-  /** Integer-only or boolean switch. */
-  kind?: "number" | "boolean";
+  /** Numeric slider (default), on/off switch, or discrete choice. */
+  kind?: "number" | "boolean" | "choice";
+  options?: { value: string; label: string }[];
 }
 
 export const PARAM_GROUPS = [
@@ -126,6 +206,9 @@ export const PARAM_GROUPS = [
   "His–Purkinje system",
   "Ventricular electrophysiology",
   "Restitution",
+  "Conduction block",
+  "Ectopy",
+  "Accessory pathway",
   "ECG forward model",
 ] as const;
 
@@ -612,16 +695,91 @@ export const PARAM_META: ParamMeta[] = [
   },
 ];
 
+
+// ---- Discrete switches (Phase 2) -------------------------------------------------------
+const sw = (path: string, label: string, group: string, structure: string, mechanism: string, prediction: string, source = "Mechanistic switch; no numeric value involved."): ParamMeta => ({
+  path, label, unit: "", min: 0, max: 1, step: 1, group, structure, mechanism, prediction, evidence: "nominal", source, kind: "boolean",
+});
+const ch = (path: string, label: string, group: string, options: readonly string[], structure: string, mechanism: string, prediction: string): ParamMeta => ({
+  path, label, unit: "", min: 0, max: 0, step: 0, group, structure, mechanism, prediction, evidence: "nominal",
+  source: "Mechanistic choice; no numeric value involved.", kind: "choice",
+  options: options.map((o) => ({ value: o, label: SITE_LABELS[o] ?? o })),
+});
+const num = (path: string, label: string, unit: string, min: number, max: number, step: number, group: string, structure: string, mechanism: string, prediction: string, source: string): ParamMeta => ({
+  path, label, unit, min, max, step, group, structure, mechanism, prediction, evidence: "nominal", source,
+});
+
+PARAM_META.push(
+  sw("rhythm.sinusArrest", "Sinus arrest", "Pacemaker function", "SA node automaticity",
+    "Suppresses SA-node discharge entirely while on. Subsidiary pacemakers are untouched.",
+    "P waves stop; after one junctional escape cycle a junctional (then, if that fails, ventricular) escape rhythm appears."),
+  num("rhythm.saExitBlockEvery", "SA exit block (every k-th discharge)", "k", 0, 6, 1, "Pacemaker function", "SA node → perinodal atrium",
+    "0 = off. Otherwise every k-th SA discharge fails to exit to the atria (type II SA exit block; the node itself still fires on time).",
+    "A dropped P–QRS–T with a pause equal to two sinus cycles.", "Deterministic pattern; type I (Wenckebach) SA exit block is not modelled."),
+  ch("avNode.retrograde", "Retrograde AV nodal conduction", "AV nodal function", ["conducted", "concealed", "blocked"], "AV node (V→A direction)",
+    "conducted: retrograde impulses reach the atria. concealed: they penetrate and reset the node's refractoriness but do not reach the atria. blocked: they do not enter.",
+    "With 'concealed', a PVC renders the node refractory to the next sinus P wave → fully compensatory pause."),
+  num("avNode.retroTime", "Retrograde nodal conduction time", "ms", 20, 300, 1, "AV nodal function", "AV node (retrograde)",
+    "Minimum H→A conduction time for retrograde impulses; the same recovery term as antegrade conduction is added.",
+    "Longer → later retrograde P after a ventricular beat; sets the RP interval of nodal reentry.", "Nominal; not fitted."),
+  num("avNode.retroErp", "Retrograde nodal ERP", "ms", 50, 600, 1, "AV nodal function", "AV node (retrograde)",
+    "Retrograde impulses arriving sooner than this after the node's previous exit are blocked.", "Determines whether VA conduction and echo beats occur.", "Nominal; not fitted."),
+  sw("avNode.dualPathway", "Dual AV nodal pathways", "AV nodal function", "AV node slow pathway (inferior extension)",
+    "Adds a slow pathway with its own conduction time and a shorter refractory period, joined to the fast pathway at the His bundle.",
+    "No change in sinus rhythm (fast pathway wins). A premature atrial beat that blocks in the fast pathway conducts slowly (PR jump) and can re-enter retrogradely (echo / AVNRT)."),
+  num("avNode.slowAhMin", "Slow-pathway conduction time", "ms", 100, 500, 1, "AV nodal function", "AV node slow pathway",
+    "Minimum conduction time over the slow pathway (recovery term added).", "Longer → longer PR after a jump; longer AVNRT cycle.", "Nominal; not fitted."),
+  num("avNode.slowErp", "Slow-pathway ERP", "ms", 100, 600, 1, "AV nodal function", "AV node slow pathway",
+    "Measured from the pathway's previous invasion (not from its exit).", "Shorter → wider window for slow-pathway conduction.", "Nominal; not fitted."),
+  sw("avNode.completeBlock", "Complete AV nodal block", "Conduction block", "AV node",
+    "The AV node (both pathways) conducts in neither direction.",
+    "AV dissociation; a junctional escape rhythm (narrow QRS) from the His bundle below the block."),
+  sw("hisPurkinje.infraHisComplete", "Complete infra-Hisian block", "Conduction block", "Distal His bundle",
+    "No conduction from the His bundle into the bundle branches.",
+    "AV dissociation with a slow ventricular escape (wide QRS); the junctional pacemaker is above the block and cannot capture."),
+  num("hisPurkinje.infraHisBlockEvery", "Intermittent infra-Hisian block (every k-th)", "k", 0, 8, 1, "Conduction block", "Distal His bundle",
+    "0 = off. Otherwise every k-th antegrade impulse blocks below the His bundle with no preceding PR change (k:(k−1) conduction; k = 2 gives 2:1).",
+    "Mobitz II pattern: constant PR, then a non-conducted P.", "Deterministic pattern; real Mobitz II is intermittent and unpredictable."),
+  sw("hisPurkinje.rbbBlock", "Right bundle branch block", "Conduction block", "Right bundle branch", "Conduction in the right bundle is abolished (both directions).",
+    "RV activated late via trans-septal spread from the LV: terminal rightward/anterior forces, wide QRS, secondary ST–T change."),
+  sw("hisPurkinje.lbbBlock", "Left bundle branch block (trunk)", "Conduction block", "Left bundle branch and all fascicles", "Conduction into the left bundle and its fascicles is abolished.",
+    "Septum activated right-to-left; LV activated slowly through myocardium: broad QRS, loss of septal q in I/V5–V6, secondary ST–T change."),
+  sw("hisPurkinje.lafBlock", "Left anterior fascicular block", "Conduction block", "Left anterior fascicle", "Conduction in the anterior fascicle is abolished.",
+    "Anterolateral LV activated late. Limitation: this model does not reproduce the expected left-axis deviation (see SCIENTIFIC_LIMITATIONS)."),
+  sw("hisPurkinje.lpfBlock", "Left posterior fascicular block", "Conduction block", "Left posterior fascicle", "Conduction in the posterior fascicle is abolished.",
+    "Inferoposterior LV activated late (expected rightward axis shift)."),
+  ch("ectopy.site", "Ectopic focus", "Ectopy", ECTOPIC_SITES, "Atrial or ventricular myocardium",
+    "Location at which premature (ectopic) excitations are injected.", "Origin determines the activation sequence and therefore P-wave or QRS morphology."),
+  ch("ectopy.pattern", "Ectopy pattern", "Ectopy", ECTOPY_PATTERNS, "Timing of ectopic excitations",
+    "single: one ectopic beat every 'every' normal beats; once: a single ectopic beat after the 'every'-th normal beat (programmed-stimulation analogue); bigeminy/trigeminy: after every 1st/2nd normal beat; couplet: two in a row; run: 'run length' in a row; focus: a protected automatic focus firing at 'rate' (parasystole-like, not reset).",
+    "Coupling interval and pattern determine pauses (compensatory or not) and whether the beat captures."),
+  num("ectopy.coupling", "Coupling interval", "ms", 200, 1500, 5, "Ectopy", "Ectopic timing",
+    "Time from the preceding P onset (atrial focus) or QRS onset (ventricular focus) to the ectopic stimulus. Runs repeat at this interval.",
+    "Too short → falls in the refractory period and fails to capture.", "User-chosen stimulus timing."),
+  num("ectopy.every", "Normal beats between events", "beats", 1, 20, 1, "Ectopy", "Ectopic timing", "For single / couplet / run patterns.", "Frequency of ectopic events.", "User-chosen."),
+  num("ectopy.runLength", "Run length", "beats", 2, 30, 1, "Ectopy", "Ectopic timing", "Number of consecutive ectopic beats in a run.", "Longer runs = non-sustained tachycardia.", "User-chosen."),
+  num("ectopy.rate", "Focus rate", "bpm", 30, 250, 1, "Ectopy", "Ectopic automatic focus", "Firing rate for the 'focus' pattern.", "Focal tachycardia when the rate exceeds the sinus rate.", "User-chosen."),
+  ch("accessory.site", "Accessory pathway", "Accessory pathway", ACCESSORY_SITES, "Atrioventricular muscle bridge",
+    "Adds a non-decremental AV connection bypassing the AV node at the chosen annular site.",
+    "Manifest pathway: short PR, delta wave, wide QRS (pre-excitation). Concealed pathway: normal sinus ECG; substrate for orthodromic AVRT."),
+  num("accessory.conductionTime", "Pathway conduction time", "ms", 2, 80, 1, "Accessory pathway", "Accessory pathway", "Fixed (non-decremental) conduction time.", "Shorter → earlier ventricular pre-excitation.", "Nominal; not fitted."),
+  num("accessory.anteErp", "Pathway antegrade ERP", "ms", 150, 600, 1, "Accessory pathway", "Accessory pathway", "Refractoriness from the previous invasion.", "Longer → premature atrial beats block in the pathway and conduct over the AV node (AVRT initiation).", "Nominal; not fitted."),
+  num("accessory.retroErp", "Pathway retrograde ERP", "ms", 150, 600, 1, "Accessory pathway", "Accessory pathway", "Refractoriness from the previous invasion (retrograde).", "Must be short enough for retrograde conduction during orthodromic AVRT.", "Nominal; not fitted."),
+  sw("accessory.antegrade", "Pathway conducts antegradely", "Accessory pathway", "Accessory pathway", "Off = concealed pathway (retrograde conduction only).", "On → pre-excitation in sinus rhythm."),
+);
+
 export const META_BY_PATH: Record<string, ParamMeta> = Object.fromEntries(PARAM_META.map((m) => [m.path, m]));
 
-export function getParam(p: SimParams, path: string): number | boolean {
+export type ParamValue = number | boolean | string;
+
+export function getParam(p: SimParams, path: string): ParamValue {
   const [g, k] = path.split(".");
-  return (p as unknown as Record<string, Record<string, number | boolean>>)[g][k];
+  return (p as unknown as Record<string, Record<string, ParamValue>>)[g][k];
 }
 
-export function setParam(p: SimParams, path: string, value: number | boolean): SimParams {
+export function setParam(p: SimParams, path: string, value: ParamValue): SimParams {
   const [g, k] = path.split(".");
-  const rec = p as unknown as Record<string, Record<string, number | boolean>>;
+  const rec = p as unknown as Record<string, Record<string, ParamValue>>;
   return { ...p, [g]: { ...rec[g], [k]: value } } as SimParams;
 }
 
@@ -639,24 +797,28 @@ export function sanitizeParams(raw: unknown): SimParams {
     const [g, k] = m.path.split(".");
     const grp = r[g] as Record<string, unknown> | undefined;
     const v = grp?.[k];
-    if (typeof v === "number" && Number.isFinite(v)) {
-      (out as unknown as Record<string, Record<string, number>>)[g][k] = Math.min(m.max, Math.max(m.min, v));
+    const o = out as unknown as Record<string, Record<string, ParamValue>>;
+    if (m.kind === "boolean") {
+      if (typeof v === "boolean") o[g][k] = v;
+    } else if (m.kind === "choice") {
+      if (typeof v === "string" && m.options!.some((x) => x.value === v)) o[g][k] = v;
+    } else if (typeof v === "number" && Number.isFinite(v)) {
+      o[g][k] = Math.min(m.max, Math.max(m.min, v));
     }
   }
+  // Phase-1 files stored retrograde conduction as a boolean
   const avn = r.avNode as Record<string, unknown> | undefined;
-  if (typeof avn?.retrograde === "boolean") out.avNode.retrograde = avn.retrograde;
+  if (typeof avn?.retrograde === "boolean") out.avNode.retrograde = avn.retrograde ? "conducted" : "blocked";
   return out;
 }
 
 /** List of parameter paths whose values differ between two parameter sets. */
-export function diffParams(a: SimParams, b: SimParams): { path: string; a: number | boolean; b: number | boolean }[] {
-  const out: { path: string; a: number | boolean; b: number | boolean }[] = [];
+export function diffParams(a: SimParams, b: SimParams): { path: string; a: ParamValue; b: ParamValue }[] {
+  const out: { path: string; a: ParamValue; b: ParamValue }[] = [];
   for (const m of PARAM_META) {
     const va = getParam(a, m.path);
     const vb = getParam(b, m.path);
     if (va !== vb) out.push({ path: m.path, a: va, b: vb });
   }
-  if (a.avNode.retrograde !== b.avNode.retrograde)
-    out.push({ path: "avNode.retrograde", a: a.avNode.retrograde, b: b.avNode.retrograde });
   return out;
 }

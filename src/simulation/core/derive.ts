@@ -3,7 +3,7 @@
  * parameters change; cheap relative to the simulation itself.
  */
 import { CT, EK, type CardiacModel } from "./model";
-import type { SimParams } from "./params";
+import type { RetroMode, SimParams } from "./params";
 import { NODAL, apdInfFromRef } from "../cellular/actionPotential";
 
 /** Nominal autonomic sensitivity coefficients (NOT data-derived; see params metadata). */
@@ -29,8 +29,46 @@ export interface Derived {
   sinusCycle: number;
   junctionalCycle: number;
   ventricularEscapeCycle: number;
-  avn: { ahMin: number; amplitude: number; tau: number; erp: number; retrograde: boolean };
+  avn: { ahMin: number; amplitude: number; tau: number; erp: number; retrograde: RetroMode; retroTime: number; retroErp: number };
   hisTotalLength: number;
+  /** Per lumped link (same order as model.links). */
+  links: LinkParams[];
+}
+
+/**
+ * Parameters of a lumped directional link. Delay = base + amplitude·exp(−(R − ERP)/τ), where
+ * R is the recovery time measured from the previous exit ("exit") or the previous invasion ("entry").
+ */
+export interface LinkParams {
+  enabled: boolean;
+  ante: boolean;
+  retro: RetroMode;
+  anteBase: number;
+  retroBase: number;
+  amplitude: number;
+  tau: number;
+  anteErp: number;
+  retroErp: number;
+  recoveryFrom: "exit" | "entry";
+}
+
+export function deriveLinks(model: CardiacModel, p: SimParams, avn: Derived["avn"]): LinkParams[] {
+  const off: LinkParams = { enabled: false, ante: false, retro: "blocked", anteBase: 0, retroBase: 0, amplitude: 0, tau: 1, anteErp: 0, retroErp: 0, recoveryFrom: "entry" };
+  const cb = p.avNode.completeBlock;
+  return model.links.map((l) => {
+    if (l.id === "avn-fast")
+      return { enabled: !cb, ante: true, retro: avn.retrograde, anteBase: avn.ahMin, retroBase: avn.retroTime, amplitude: avn.amplitude, tau: avn.tau, anteErp: avn.erp, retroErp: avn.retroErp, recoveryFrom: "exit" };
+    if (l.id === "avn-slow") {
+      if (!p.avNode.dualPathway || cb) return off;
+      const f = avn.ahMin / Math.max(1e-6, p.avNode.ahMin); // same autonomic scaling as the fast pathway
+      return { enabled: true, ante: true, retro: "blocked", anteBase: p.avNode.slowAhMin * f, retroBase: p.avNode.slowAhMin * f, amplitude: avn.amplitude, tau: avn.tau, anteErp: p.avNode.slowErp * f, retroErp: p.avNode.slowErp * f, recoveryFrom: "entry" };
+    }
+    if (l.id === p.accessory.site) {
+      const a = p.accessory;
+      return { enabled: true, ante: a.antegrade, retro: "conducted", anteBase: a.conductionTime, retroBase: a.conductionTime, amplitude: 0, tau: 1, anteErp: a.anteErp, retroErp: a.retroErp, recoveryFrom: "entry" };
+    }
+    return off;
+  });
 }
 
 export function derive(model: CardiacModel, p: SimParams): Derived {
@@ -93,16 +131,16 @@ export function derive(model: CardiacModel, p: SimParams): Derived {
           break;
         case EK.LBB:
         case EK.LSF:
-          d = L / hp.lbbCv;
+          d = hp.lbbBlock ? Infinity : L / hp.lbbCv;
           break;
         case EK.RBB:
-          d = L / hp.rbbCv;
+          d = hp.rbbBlock ? Infinity : L / hp.rbbCv;
           break;
         case EK.LAF:
-          d = L / hp.lafCv;
+          d = hp.lbbBlock || hp.lafBlock ? Infinity : L / hp.lafCv;
           break;
         case EK.LPF:
-          d = L / hp.lpfCv;
+          d = hp.lbbBlock || hp.lpfBlock ? Infinity : L / hp.lpfCv;
           break;
         case EK.PURKINJE:
           d = L / hp.purkinjeCv;
@@ -152,6 +190,7 @@ export function derive(model: CardiacModel, p: SimParams): Derived {
   const auto = deriveAutonomic(p);
   return {
     ...auto,
+    links: deriveLinks(model, p, auto.avn),
     edgeDelay,
     edgeRestitutes,
     apdRef,
@@ -179,6 +218,8 @@ export function deriveAutonomic(p: SimParams) {
       tau: p.avNode.recoveryTau,
       erp: p.avNode.erp * avnFactor,
       retrograde: p.avNode.retrograde,
+      retroTime: p.avNode.retroTime * avnFactor,
+      retroErp: p.avNode.retroErp * avnFactor,
     },
   };
 }

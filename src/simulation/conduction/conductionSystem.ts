@@ -13,7 +13,7 @@
  * regions activated last because the Purkinje network spares the base.
  */
 import { ANATOMY, fromLocal, lvEndoPoint, lvOuterRadius, type Frame } from "../tissue/anatomy";
-import { CT, EK, RG, type Region } from "../core/model";
+import { CT, EK, RG, type LumpedLink, type Region } from "../core/model";
 import { add, dist, normalize, scale, sub, type Vec3 } from "../core/vec";
 import { addEdge, addNode, nodePos, type Builder } from "../tissue/buildModel";
 
@@ -28,6 +28,8 @@ export interface ConductionSystem {
   ventEscape: number;
   avnInputs: number[];
   paths: { region: Region; nodes: number[] }[];
+  links: LumpedLink[];
+  ectopicSites: Record<string, number>;
 }
 
 export function buildConductionSystem(
@@ -107,6 +109,12 @@ export function buildConductionSystem(
   const avn = addNode(B, avnPos, CT.AVN, RG.AVN, abOf(avnPos));
   const avnInputs = within(atrial, avnSitePos, 5).filter(isRA);
   for (const i of avnInputs) addEdge(B, i, avn, EK.AVN_IN, 0);
+  // Slow pathway: inferoposterior input near the coronary sinus ostium (used only in dual-pathway mode)
+  const spSite = nearest(atrial, fromLocal(f, -6, 3, -27), isRA);
+  const spSitePos = nodePos(B, spSite);
+  const avnSlow = addNode(B, add(spSitePos, scale(f.d, 3)), CT.AVN, RG.AVN_SLOW, abOf(spSitePos));
+  const spInputs = within(atrial, spSitePos, 5).filter(isRA);
+  for (const i of spInputs) addEdge(B, i, avnSlow, EK.AVN_IN, 0);
 
   // ---- helper to lay a polyline of conduction nodes --------------------------------
   const layPath = (pts: Vec3[], cellType: number, region: Region, kind: number, startNode: number, spacing = 2): number[] => {
@@ -141,6 +149,7 @@ export function buildConductionSystem(
   const his = layPath([avnPos, crest, hisEnd], CT.HIS, RG.HIS, EK.HIS, -1);
   // connect AVN → first His node with the AV-nodal output edge (delay computed dynamically)
   addEdge(B, avn, his[0], EK.AVN_OUT);
+  addEdge(B, avnSlow, his[0], EK.AVN_OUT);
   paths.push({ region: RG.HIS, nodes: [avn, ...his] });
   const hisProximal = his[0];
   const hisDistal = his[his.length - 1];
@@ -246,6 +255,51 @@ export function buildConductionSystem(
   // RBB is an unbranched cord until the moderator band: the RV network arises from its distal end only
   grow([...rbbSept.slice(-2), ...rbbMb.slice(-3)], rvCands, RG.PURK_RV);
 
+  // ---- Accessory pathways (atrioventricular muscle bridges across the insulating AV ring) ------
+  const vent: number[] = [];
+  for (let i = 0; i < nMyo; i++) if (B.cellType[i] === CT.VENTRICULAR) vent.push(i);
+  const links: LumpedLink[] = [
+    { id: "avn-fast", label: "AV node (fast pathway)", node: avn, upper: avnInputs, lower: [his[0]] },
+    { id: "avn-slow", label: "AV node (slow pathway)", node: avnSlow, upper: spInputs, lower: [his[0]] },
+  ];
+  const apDefs: [string, string, Vec3, Vec3, (i: number) => boolean, (i: number) => boolean][] = [
+    ["ap-left-lateral", "Accessory pathway (left lateral)", fromLocal(f, -5, -27, -12), fromLocal(f, 4, -lvOuterRadius(4) + 1.5, -8), (i) => B.region[i] === RG.LA, (i) => B.region[i] === RG.LV],
+    ["ap-posteroseptal", "Accessory pathway (posteroseptal)", fromLocal(f, -5, 4, -26), fromLocal(f, 4, 6, -lvOuterRadius(4) + 2), isRA, (i) => B.region[i] === RG.LV || B.region[i] === RG.SEPTUM],
+    ["ap-right-free-wall", "Accessory pathway (right free wall)", fromLocal(f, -5, 36, -4), fromLocal(f, 4, A.rvCenterA + A.rvRa - 2, 0), isRA, (i) => B.region[i] === RG.RV],
+  ];
+  for (const [id, label, aPt, vPt, aPred, vPred] of apDefs) {
+    const aSite = nearest(atrial, aPt, aPred);
+    const vSite = nearest(vent, vPt, vPred);
+    const ap = addNode(B, scale(add(nodePos(B, aSite), nodePos(B, vSite)), 0.5), CT.PURKINJE, RG.ACCESSORY, abOf(nodePos(B, vSite)));
+    const up = within(atrial, nodePos(B, aSite), 4, 2).filter(aPred);
+    const lo = within(vent, nodePos(B, vSite), 4, 3).filter(vPred);
+    for (const i of up) addEdge(B, i, ap, EK.AVN_IN, 0);
+    for (const i of lo) addEdge(B, ap, i, EK.AVN_OUT, 0);
+    links.push({ id, label, node: ap, upper: up, lower: lo });
+  }
+
+  // ---- Ectopic / pacing sites ---------------------------------------------------------------
+  const midWall = (l: number, phi: number, region: (i: number) => boolean) => {
+    const r = (lvOuterRadius(l) + A.lvInnerR * Math.sqrt(Math.max(0, 1 - (l * l) / (A.lvInnerL * A.lvInnerL)))) / 2;
+    return nearest(vent, fromLocal(f, l, r * Math.cos(phi), r * Math.sin(phi)), region);
+  };
+  const rvMid = (l: number, th: number) => {
+    const k = Math.sqrt(Math.max(0, 1 - (l * l) / (A.rvL * A.rvL)));
+    return nearest(vent, fromLocal(f, l, A.rvCenterA + (A.rvRa - A.rvWall / 2) * k * Math.cos(th), (A.rvRb - A.rvWall / 2) * k * Math.sin(th)), (i) => B.region[i] === RG.RV);
+  };
+  const ectopicSites: Record<string, number> = {
+    "ra-high": nearest(atrial, add(raC, scale(normalize([0.15, -0.75, 0.65]), A.ra.R)), (i) => isRA(i) && B.region[i] !== RG.SAN),
+    "ra-low": nearest(atrial, add(raC, scale(normalize([-0.55, 0.7, -0.2]), A.ra.R)), isRA),
+    la: nearest(atrial, add(laC, scale(normalize([0.35, -0.55, -0.75]), A.la.R)), (i) => B.region[i] === RG.LA),
+    rvot: rvMid(6, (70 * Math.PI) / 180),
+    "rv-apex": rvMid(0.78 * A.rvL, 0),
+    septum: midWall(0.5 * A.lvOuterL, 0, (i) => B.region[i] === RG.SEPTUM),
+    "lv-apex": midWall(0.93 * A.lvOuterL, Math.PI, (i) => B.region[i] === RG.LV),
+    "lv-lateral": midWall(0.45 * A.lvOuterL, Math.PI, (i) => B.region[i] === RG.LV),
+    "lv-anterobasal": midWall(0.18 * A.lvOuterL, (110 * Math.PI) / 180, (i) => B.region[i] === RG.LV),
+    "lv-inferobasal": midWall(0.18 * A.lvOuterL, (-110 * Math.PI) / 180, (i) => B.region[i] === RG.LV),
+  };
+
   return {
     san,
     avn,
@@ -254,5 +308,7 @@ export function buildConductionSystem(
     ventEscape: lpf[lpf.length - 1],
     avnInputs,
     paths,
+    links,
+    ectopicSites,
   };
 }

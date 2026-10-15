@@ -15,7 +15,7 @@ const LABEL_W = 132;
 const V_MIN = -95;
 const V_MAX = 45;
 
-export function APPanel() {
+export function APPanel({ probeIds }: { probeIds?: string[] } = {}) {
   const ref = useRef<HTMLCanvasElement>(null);
   const last = useRef("");
   useEffect(() => {
@@ -33,8 +33,9 @@ export function APPanel() {
       const tk = tokens();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
-      const lanes = meta.probes.filter((p) => st.probes.includes(p.id)).map((p) => ({ node: p.node, label: p.label }));
-      if (st.customNode !== null) lanes.push({ node: st.customNode, label: "Selected cell" });
+      const ids = probeIds ?? st.probes;
+      const lanes = meta.probes.filter((p) => ids.includes(p.id)).map((p) => ({ node: p.node, label: p.label }));
+      if (st.customNode !== null) lanes.push({ node: st.customNode, label: st.customLabel.length > 18 ? "Selected cell" : st.customLabel });
       const stripH = Math.max(56, Math.min(90, h * 0.2));
       const axisH = 16;
       const laneH = (h - stripH - axisH) / Math.max(1, lanes.length);
@@ -213,6 +214,7 @@ export function APPanel() {
       ctx.stroke();
     };
     return registerRenderer(render);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [probeIds?.join()]);
   return <canvas ref={ref} className="fill" aria-label="Action potentials and lead II on a common time axis" data-testid="ap-canvas" />;
 }

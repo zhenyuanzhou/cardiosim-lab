@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { sim, useStore, type Tab } from "./state/store";
-import { HeartView, legendGradient } from "./visualization/heart/HeartView";
+import { clock, sim, useStore, type Mode, type Tab } from "./state/store";
+import { HeartPanelBody } from "./visualization/heart/HeartPanel";
 import { APPanel } from "./visualization/action-potentials/APPanel";
 import { ECGPanel } from "./visualization/ecg/ECGPanel";
 import { ParameterPanel } from "./components/controls/ParameterPanel";
@@ -9,19 +9,158 @@ import { ExplainPanel } from "./components/education/ExplainPanel";
 import { ValidationPanel } from "./components/measurements/ValidationPanel";
 import { ComparePanel, CompareView } from "./components/controls/ComparePanel";
 import { AboutPanel } from "./components/education/AboutPanel";
+import { LessonsPanel } from "./components/education/LessonsPanel";
+import { ExplorerView } from "./visualization/explorer/ExplorerView";
+import { SplitView } from "./visualization/explorer/SplitView";
+import { Panel } from "./components/layout/Panel";
+import { Split } from "./components/layout/Split";
 import { seek } from "./visualization/frameLoop";
 import { jumpBeat, restart } from "./state/actions";
-import { clock } from "./state/store";
 import { deriveAutonomic } from "./simulation/core/derive";
 
 const TABS: [Tab, string][] = [
   ["scenarios", "Scenarios"],
   ["parameters", "Parameters"],
   ["explain", "Explain"],
+  ["lessons", "Lessons"],
   ["validation", "Validation"],
   ["compare", "A/B"],
   ["about", "About"],
 ];
+
+const MODES: [Mode, string, string][] = [
+  ["simulator", "Simulator", "Cardiac anatomy & activation with APs, 12-lead ECG and controls"],
+  ["explorer", "Leads & Vectors", "Torso, electrodes, lead geometry, heart vector and projections"],
+  ["split", "Split view", "Synchronised educational view: heart, torso, lead, APs, vector, explanation"],
+];
+
+function useNarrow(px = 1100) {
+  const [narrow, setNarrow] = useState(() => window.matchMedia(`(max-width: ${px}px)`).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${px}px)`);
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [px]);
+  return narrow;
+}
+
+export function ControlRack({ buildMs }: { buildMs: number }) {
+  const st = useStore();
+  return (
+    <>
+      <nav className="tabs" role="tablist">
+        {TABS.map(([k, l]) => (
+          <button key={k} role="tab" aria-selected={st.tab === k} className={st.tab === k ? "on" : ""} onClick={() => st.set({ tab: k })} data-tab={k}>
+            {l}
+            {k === "explain" && st.paramChanges.length > 0 ? ` (${st.paramChanges.length})` : ""}
+          </button>
+        ))}
+      </nav>
+      <div className="ctrl-body">
+        {!st.ready ? (
+          <div className="loading">…</div>
+        ) : st.tab === "parameters" ? (
+          <ParameterPanel />
+        ) : st.tab === "scenarios" ? (
+          <ScenarioPanel />
+        ) : st.tab === "explain" ? (
+          <ExplainPanel />
+        ) : st.tab === "lessons" ? (
+          <LessonsPanel />
+        ) : st.tab === "validation" ? (
+          <ValidationPanel />
+        ) : st.tab === "compare" ? (
+          <ComparePanel />
+        ) : (
+          <AboutPanel buildMs={buildMs} />
+        )}
+      </div>
+    </>
+  );
+}
+
+function CellsMenu() {
+  const st = useStore();
+  return (
+    <details style={{ position: "relative" }}>
+      <summary className="btn" style={{ listStyle: "none" }}>
+        Cells…
+      </summary>
+      <div className="card" style={{ position: "absolute", right: 0, zIndex: 5, width: 250 }}>
+        {sim.meta?.probes.map((p) => (
+          <label key={p.id} htmlFor={`probe-${p.id}`} style={{ display: "flex", gap: 6 }}>
+            <input id={`probe-${p.id}`} type="checkbox" checked={st.probes.includes(p.id)} onChange={(e) => st.set({ probes: e.target.checked ? [...st.probes, p.id] : st.probes.filter((x) => x !== p.id) })} />
+            {p.label}
+          </label>
+        ))}
+        {st.customNode !== null && (
+          <button className="linkbtn" onClick={() => st.set({ customNode: null })}>
+            Remove selected cell ({st.customLabel})
+          </button>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function SimulatorLayout({ buildMs }: { buildMs: number }) {
+  const st = useStore();
+  const narrow = useNarrow();
+  const heart = (
+    <Panel id="heart" letter="A" title="Anatomy & activation" fid="L1+L2 · idealised anatomy" className="panel-heart" label="Panel A: cardiac anatomy and activation">
+      {st.ready ? <HeartPanelBody /> : <div className="loading">Building heart model…</div>}
+    </Panel>
+  );
+  const ap = (
+    <Panel
+      id="ap"
+      letter="B"
+      title="Cellular action potentials"
+      fid="reduced-order · APD90 / ERP per cell · same clock as ECG"
+      className="panel-ap"
+      label="Panel B: cellular action potentials"
+      tools={<CellsMenu />}
+    >
+      {st.ready && <APPanel />}
+    </Panel>
+  );
+  const ecg = (
+    <Panel id="ecg" letter="C" title="12-lead ECG" fid="forward-computed from the simulated membrane potentials" className="panel-ecg" label="Panel C: ECG monitor">
+      {st.ready ? st.showCompare && st.compare ? <CompareView /> : <ECGPanel /> : <div className="loading">Starting simulation…</div>}
+    </Panel>
+  );
+  const ctrl = (
+    <section className="panel panel-ctrl" aria-label="Panel D: parameters and explanations" data-panel="ctrl">
+      <ControlRack buildMs={buildMs} />
+    </section>
+  );
+  if (st.maximized) {
+    const one = { heart, ap, ecg }[st.maximized as "heart" | "ap" | "ecg"];
+    if (one) return <main className="grid-max">{one}</main>;
+  }
+  if (narrow)
+    return (
+      <main className="stack">
+        {ecg}
+        {heart}
+        {ap}
+        {ctrl}
+      </main>
+    );
+  return (
+    <main className="layout">
+      <Split id="sim-cols" direction="row" initial={[0.29, 0.46, 0.25]} minPx={260}>
+        <Split id="sim-left" direction="column" initial={[0.56, 0.44]} minPx={180}>
+          {heart}
+          {ap}
+        </Split>
+        {ecg}
+        {ctrl}
+      </Split>
+    </main>
+  );
+}
 
 export default function App() {
   const st = useStore();
@@ -56,33 +195,70 @@ export default function App() {
       else if (e.key === "ArrowRight") seek(clock.t + 20);
       else if (e.key === "[") jumpBeat(-1);
       else if (e.key === "]") jumpBeat(1);
+      else if (e.key === "Escape" && s.maximized) s.set({ maximized: null });
     };
     window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
+    const fs = () => {
+      if (!document.fullscreenElement && useStore.getState().present) useStore.getState().set({ present: false });
+    };
+    document.addEventListener("fullscreenchange", fs);
+    return () => {
+      window.removeEventListener("keydown", key);
+      document.removeEventListener("fullscreenchange", fs);
+    };
   }, []);
+
+  const togglePresent = async () => {
+    const on = !st.present;
+    st.set({ present: on });
+    try {
+      if (on && !document.fullscreenElement) await document.documentElement.requestFullscreen();
+      if (!on && document.fullscreenElement) await document.exitFullscreen();
+    } catch {
+      /* fullscreen not permitted: presentation styling still applies */
+    }
+  };
 
   const rate = deriveAutonomic(st.params).sinusRateBpm;
 
   return (
-    <div className="app">
+    <div className={`app ${st.present ? "present" : ""}`}>
       <header className="topbar">
         <div className="brand">
           <h1>
             Cardio<span>Sim</span> Lab
           </h1>
-          <small>EP → ECG</small>
         </div>
-        <span className="badge warn" title="Not a clinically validated diagnostic system or patient-specific prediction tool">Education · not for clinical use</span>
+        <div className="seg modes" role="tablist" aria-label="View mode">
+          {MODES.map(([m, l, title]) => (
+            <button key={m} role="tab" aria-selected={st.mode === m} className={st.mode === m ? "on" : ""} onClick={() => st.set({ mode: m, maximized: null })} title={title} data-mode={m}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <span className="badge warn" title="Not a clinically validated diagnostic system or patient-specific prediction tool">
+          Education · not for clinical use
+        </span>
         <div className="spacer" />
         <div className="transport" role="toolbar" aria-label="Playback">
-          <button className="btn icon" title="Rewind to the start of the retained history" onClick={() => seek(sim.data?.tStart ?? 0)} aria-label="Rewind">⏮</button>
-          <button className="btn icon" title="Previous beat ( [ )" onClick={() => jumpBeat(-1)} aria-label="Previous beat">⏪</button>
-          <button className="btn icon" title="Step back 20 ms (←)" onClick={() => seek(clock.t - 20)} aria-label="Step back">◂</button>
+          <button className="btn icon" title="Rewind to the start of the retained history" onClick={() => seek(sim.data?.tStart ?? 0)} aria-label="Rewind">
+            ⏮
+          </button>
+          <button className="btn icon" title="Previous beat ( [ )" onClick={() => jumpBeat(-1)} aria-label="Previous beat">
+            ⏪
+          </button>
+          <button className="btn icon" title="Step back 20 ms (←)" onClick={() => seek(clock.t - 20)} aria-label="Step back">
+            ◂
+          </button>
           <button className="btn primary" style={{ minWidth: 76 }} onClick={() => st.set({ playing: !st.playing })} data-testid="play" aria-label={st.playing ? "Pause" : "Play"}>
             {st.playing ? "❚❚ Pause" : "▶ Play"}
           </button>
-          <button className="btn icon" title="Step forward 20 ms (→)" onClick={() => seek(clock.t + 20)} aria-label="Step forward">▸</button>
-          <button className="btn icon" title="Next beat ( ] )" onClick={() => jumpBeat(1)} aria-label="Next beat">⏩</button>
+          <button className="btn icon" title="Step forward 20 ms (→)" onClick={() => seek(clock.t + 20)} aria-label="Step forward">
+            ▸
+          </button>
+          <button className="btn icon" title="Next beat ( ] )" onClick={() => jumpBeat(1)} aria-label="Next beat">
+            ⏩
+          </button>
           <button
             className="btn"
             title="Replay the last 3 seconds"
@@ -109,146 +285,28 @@ export default function App() {
           <small>sinus rate</small>
           {rate.toFixed(0)} bpm
         </div>
-        <select
-          value={st.sampleRate}
-          onChange={(e) => restart(useStore.getState().params, +e.target.value as 500 | 1000)}
-          aria-label="ECG sampling rate"
-          id="sample-rate"
-          title="Changing the sampling rate restarts the simulation"
-        >
+        <select value={st.sampleRate} onChange={(e) => restart(useStore.getState().params, +e.target.value as 500 | 1000)} aria-label="ECG sampling rate" id="sample-rate" title="Changing the sampling rate restarts the simulation">
           <option value={500}>500 Hz</option>
           <option value={1000}>1000 Hz</option>
         </select>
         <button className="btn" onClick={() => restart(useStore.getState().params)} title="Restart from t = 0 with current parameters">
           Restart
         </button>
+        <button className={`btn ${st.present ? "on" : ""}`} onClick={togglePresent} title="Full-screen presentation mode (larger type)" data-testid="present">
+          Present
+        </button>
         <button className="btn icon" onClick={() => st.set({ theme: st.theme === "dark" ? "light" : "dark" })} title="Toggle light/dark" aria-label="Toggle theme">
           {st.theme === "dark" ? "☀" : "☾"}
         </button>
       </header>
 
-      {st.error && <div className="errbox" style={{ margin: 8 }}>{st.error}</div>}
+      {st.error && (
+        <div className="errbox" style={{ margin: 8 }}>
+          {st.error}
+        </div>
+      )}
 
-      <main className="grid">
-        <section className="panel panel-heart" aria-label="Panel A: cardiac anatomy and activation">
-          <header>
-            <h2>
-              <b>A</b>Activation
-            </h2>
-            <span className="fid">L1+L2 · idealised anatomy</span>
-            <span className="spacer" />
-            <div className="seg" role="group" aria-label="Colour mode">
-              {(
-                [
-                  ["vm", "Vm"],
-                  ["activation", "Isochrones"],
-                  ["state", "Refractory"],
-                ] as const
-              ).map(([k, l]) => (
-                <button key={k} className={st.heartColor === k ? "on" : ""} onClick={() => st.set({ heartColor: k })}>
-                  {l}
-                </button>
-              ))}
-            </div>
-          </header>
-          <div className="toolbar" style={{ padding: "4px 10px", borderBottom: "1px solid var(--line)" }}>
-            {(
-              [
-                ["atria", "Atria"],
-                ["ventricles", "Ventricles"],
-                ["conduction", "Conduction system"],
-                ["cutaway", "Cut-away"],
-                ["labels", "Labels"],
-              ] as const
-            ).map(([k, l]) => (
-              <label key={k} htmlFor={`layer-${k}`}>
-                <input id={`layer-${k}`} type="checkbox" checked={st.layers[k]} onChange={(e) => st.set({ layers: { ...st.layers, [k]: e.target.checked } })} />
-                {l}
-              </label>
-            ))}
-          </div>
-          <div className="panel-body">
-            {st.ready ? <HeartView /> : <div className="loading">Building heart model…</div>}
-            <div className="heart-legend">
-              <span>{st.heartColor === "vm" ? "rest" : st.heartColor === "activation" ? "early" : "front"}</span>
-              <span className="bar" style={{ background: legendGradient(st.heartColor) }} />
-              <span>{st.heartColor === "vm" ? "peak Vm" : st.heartColor === "activation" ? "late (10 ms bands)" : "rest"}</span>
-            </div>
-          </div>
-        </section>
-
-        <section className="panel panel-ap" aria-label="Panel B: cellular action potentials">
-          <header>
-            <h2>
-              <b>B</b>Cellular action potentials
-            </h2>
-            <span className="fid" title="Lane labels show APD90 / ERP of the latest action potential. AV node ERP (*) is the functional refractoriness of the recovery model, which outlasts its APD (post-repolarisation refractoriness).">reduced-order · APD90 / ERP per cell · same clock as ECG</span>
-            <span className="spacer" />
-            <details style={{ position: "relative" }}>
-              <summary className="btn" style={{ listStyle: "none" }}>
-                Cells…
-              </summary>
-              <div className="card" style={{ position: "absolute", right: 0, zIndex: 5, width: 240 }}>
-                {sim.meta?.probes.map((p) => (
-                  <label key={p.id} htmlFor={`probe-${p.id}`} style={{ display: "flex", gap: 6 }}>
-                    <input
-                      id={`probe-${p.id}`}
-                      type="checkbox"
-                      checked={st.probes.includes(p.id)}
-                      onChange={(e) => st.set({ probes: e.target.checked ? [...st.probes, p.id] : st.probes.filter((x) => x !== p.id) })}
-                    />
-                    {p.label}
-                  </label>
-                ))}
-                {st.customNode !== null && (
-                  <button className="linkbtn" onClick={() => st.set({ customNode: null })}>
-                    Remove selected cell
-                  </button>
-                )}
-              </div>
-            </details>
-          </header>
-          <div className="panel-body">{st.ready && <APPanel />}</div>
-        </section>
-
-        <section className="panel panel-ecg" aria-label="Panel C: ECG monitor">
-          <header>
-            <h2>
-              <b>C</b>12-lead ECG
-            </h2>
-            <span className="fid">forward-computed from the simulated membrane potentials</span>
-          </header>
-          <div className="panel-body">{st.ready ? st.showCompare && st.compare ? <CompareView /> : <ECGPanel /> : <div className="loading">Starting simulation…</div>}</div>
-        </section>
-
-        <section className="panel panel-ctrl" aria-label="Panel D: parameters and explanations">
-          <nav className="tabs" role="tablist">
-            {TABS.map(([k, l]) => (
-              <button key={k} role="tab" aria-selected={st.tab === k} className={st.tab === k ? "on" : ""} onClick={() => st.set({ tab: k })} data-tab={k}>
-                {l}
-                {k === "explain" && st.paramChanges.length > 0 ? ` (${st.paramChanges.length})` : ""}
-              </button>
-            ))}
-          </nav>
-          <div className="ctrl-body">
-            {!st.ready ? (
-              <div className="loading">…</div>
-            ) : st.tab === "parameters" ? (
-              <ParameterPanel />
-            ) : st.tab === "scenarios" ? (
-              <ScenarioPanel />
-            ) : st.tab === "explain" ? (
-              <ExplainPanel />
-            ) : st.tab === "validation" ? (
-              <ValidationPanel />
-            ) : st.tab === "compare" ? (
-              <ComparePanel />
-            ) : (
-              <AboutPanel buildMs={buildMs} />
-            )}
-          </div>
-        </section>
-      </main>
+      {st.mode === "simulator" ? <SimulatorLayout buildMs={buildMs} /> : st.mode === "explorer" ? <ExplorerView /> : <SplitView />}
     </div>
   );
 }

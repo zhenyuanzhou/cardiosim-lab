@@ -299,3 +299,105 @@ details.group > summary { cursor: pointer; padding: 6px 8px; font: 600 12px/1.2 
 .card table.meas td, .card table.meas th { white-space: normal; padding: 3px 4px; }
 .card { min-width: 0; overflow-wrap: anywhere; }
 .ctrl-body > * { min-width: 0; }
+
+/* ============ Phase 2: resizable layout, 3-D scenes, explorer ============ */
+.layout, .explorer-body { min-height: 0; padding: 8px; display: flex; }
+.layout > .split, .explorer-body > .split { flex: 1; }
+.grid-max { min-height: 0; padding: 8px; display: flex; }
+.grid-max > .panel { flex: 1; }
+.stack { display: flex; flex-direction: column; gap: 8px; padding: 8px; }
+.stack > .panel-ecg { min-height: min(78vh, 720px); }
+.stack > .panel-heart { min-height: 440px; }
+.stack > .panel-ap { min-height: 300px; }
+.stack > .panel-ctrl { min-height: 520px; }
+.split { display: flex; min-width: 0; min-height: 0; width: 100%; height: 100%; }
+.split-row { flex-direction: row; }
+.split-column { flex-direction: column; }
+.split-cell { display: flex; min-width: 0; min-height: 0; position: relative; }
+.split-cell > .panel, .split-cell > .split { flex: 1; }
+.split-handle { flex: 0 0 8px; position: relative; touch-action: none; }
+.split-handle-row { cursor: col-resize; }
+.split-handle-column { cursor: row-resize; }
+.split-handle::after { content: ""; position: absolute; border-radius: 2px; background: var(--line); transition: background 0.15s; }
+.split-handle-row::after { top: 40%; bottom: 40%; left: 3px; width: 2px; }
+.split-handle-column::after { left: 40%; right: 40%; top: 3px; height: 2px; }
+.split-handle:hover::after, .split-handle:active::after { background: var(--accent); }
+.panel.is-max { flex: 1; }
+.panel > header .btn.icon { padding: 2px 6px; min-width: 26px; font-size: 12px; }
+
+.modes button { padding: 5px 10px; font-weight: 500; }
+
+.heart-panel { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.heart-tools { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.heart-stage, .scene-wrap { position: relative; flex: 1; min-height: 0; height: 100%; }
+.scene-host { position: absolute; inset: 0; overflow: hidden; }
+.scene-host canvas { display: block; width: 100%; height: 100%; }
+.scene-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.scene-label {
+  position: absolute; transform: translate(-50%, -50%); white-space: nowrap;
+  font: 500 10.5px/1.1 var(--font-ui); color: var(--fg-dim);
+  background: color-mix(in srgb, var(--panel) 70%, transparent); padding: 1px 4px; border-radius: 3px;
+}
+.scene-label.chamber { font: 600 11px/1 var(--font-display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg); }
+.scene-label.path { color: var(--info); }
+.scene-label.electrode { font: 600 11px/1 var(--font-mono); color: var(--fg); background: color-mix(in srgb, var(--panel) 80%, transparent); }
+.scene-label.on { color: var(--accent); border: 1px solid var(--accent); }
+.scene-views { position: absolute; left: 8px; top: 8px; display: flex; gap: 4px; }
+.scene-views .btn { padding: 2px 7px; font-size: 11px; background: color-mix(in srgb, var(--panel-2) 85%, transparent); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip {
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--fg-dim);
+  border-radius: 999px; padding: 2px 9px; font-size: 11.5px; cursor: pointer; white-space: nowrap;
+}
+.chip.on { color: var(--fg); border-color: var(--fg-faint); background: color-mix(in srgb, var(--accent) 14%, var(--panel-2)); }
+.chip.primary { box-shadow: inset 0 0 0 1px currentColor; font-weight: 700; }
+.heart-legend { flex-wrap: wrap; max-width: calc(100% - 16px); background: color-mix(in srgb, var(--panel) 75%, transparent); padding: 3px 6px; border-radius: 4px; }
+.heart-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.heart-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.heart-selection {
+  position: absolute; right: 8px; bottom: 8px; max-width: 280px; font-size: 12px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--accent);
+  border-radius: var(--radius); padding: 6px 8px;
+}
+
+.explorer { display: flex; flex-direction: column; min-height: 0; }
+.explorer-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 8px 0; }
+.explorer-body { flex: 1; }
+.lead-picker { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.lead-picker .chip { font: 600 12.5px/1.2 var(--font-mono); padding: 3px 9px; }
+.sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
+.lead-info { padding: 8px 10px; overflow: auto; height: 100%; display: grid; gap: 6px; align-content: start; font-size: 12.5px; }
+.lead-info .kv { grid-template-columns: 96px 1fr; }
+.exp-menu { position: relative; }
+.exp-pop {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; width: min(560px, 92vw); max-height: 70vh; overflow: auto;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); background: var(--panel);
+}
+.exp-item { display: grid; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.exp-item:last-child { border-bottom: 0; }
+
+.lessons { display: grid; gap: 8px; }
+.lessons h3 { margin: 4px 0 0; font: 600 15px/1.25 var(--font-display); letter-spacing: 0.03em; }
+.lessons p { margin: 0; }
+.lessons .steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.quiz fieldset { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; display: grid; gap: 4px; }
+.quiz legend { font-weight: 600; padding: 0 4px; }
+.quiz label { display: flex; gap: 6px; align-items: baseline; cursor: pointer; }
+.quiz label.ok { color: var(--ok); }
+.quiz label.bad { color: var(--bad); }
+
+/* presentation mode: larger type for projection */
+.present { font-size: 15px; }
+.present .panel > header h2 { font-size: 16px; }
+.present .note { font-size: 13px; }
+.present .scene-label { font-size: 13px; }
+.present .lead-picker .chip { font-size: 15px; }
+.present .topbar .brand small, .present .topbar .badge { display: none; }
+
+@media (max-width: 1100px) {
+  .app { height: auto; min-height: 100%; }
+  .explorer-body, .layout { display: block; }
+  .explorer-body .split { flex-direction: column !important; height: auto; }
+  .explorer-body .split-cell { flex: 0 0 auto !important; min-height: 340px; }
+  .explorer-body .split-handle { display: none; }
+}

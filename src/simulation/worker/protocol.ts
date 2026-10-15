@@ -1,6 +1,7 @@
 import type { SimParams } from "../core/params";
 import type { SimOutput, WaveInfo } from "../core/engine";
 import type { BeatMeasurement } from "../ecg-forward/measurements";
+import type { SurfaceMesh } from "../tissue/surfaces";
 
 /** Static model description sent once to the UI thread. */
 export interface ModelMeta {
@@ -31,6 +32,7 @@ export type ToWorker =
 
 export type FromWorker =
   | { type: "ready"; meta: ModelMeta; buildMs: number }
+  | { type: "surfaces"; surfaces: SurfaceMesh[]; ms: number }
   | { type: "chunk"; epoch: number; out: SimOutput; simTime: number; computeMs: number }
   | {
       type: "truncate";

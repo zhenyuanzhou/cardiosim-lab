@@ -15,14 +15,14 @@
  * EADs/DADs (Phase 4), mechanical/volume-conductor dynamics.
  */
 import { CT, EK, type CardiacModel } from "./model";
-import { cloneParams, type SimParams } from "./params";
+import { cloneParams, isAtrialSite, type SimParams } from "./params";
 import { derive, type Derived } from "./derive";
 import { EV_AUTO, EV_EXCITE, EventQueue, type QueueSnapshot } from "./eventQueue";
 import { Rng } from "./rng";
 import { SHAPES, apdFromDI, repolMidpoint, steadyStateApd, ventricularNotchScale, workingA } from "../cellular/actionPotential";
 import { N_CHANNELS, N_COLS, columnsToChannels, computeLeadField } from "../ecg-forward/leadField";
 
-export type WaveOrigin = "sinus" | "junctional" | "ventricular-escape" | "ectopic";
+export type WaveOrigin = "sinus" | "junctional" | "ventricular-escape" | "ectopic" | "retrograde" | "reentry";
 
 export interface WaveInfo {
   id: number;
@@ -50,6 +50,18 @@ export interface WaveInfo {
   tVentRepolEnd: number;
   tAtrialRepolEnd: number;
   tSanActivation: number;
+  /** Named ectopic site (ectopic waves) or link id (retrograde waves). */
+  site: string;
+  /** Wave from which a retrograde / re-entrant wave arose (−1 if none). */
+  parent: number;
+  /** AV pathway that delivered the earliest antegrade exit (avn-fast / avn-slow), if any. */
+  avnPath: string;
+  /** Accessory-pathway antegrade exit time (pre-excitation), NaN if none. */
+  tApOut: number;
+  /** True when the impulse was blocked below the His bundle. */
+  infraHisBlocked: boolean;
+  /** True if the SA discharge failed to exit (SA exit block). */
+  saExitBlocked: boolean;
 }
 
 const newWave = (id: number, origin: WaveOrigin, node: number, t0: number): WaveInfo => ({
@@ -78,6 +90,12 @@ const newWave = (id: number, origin: WaveOrigin, node: number, t0: number): Wave
   tVentRepolEnd: NaN,
   tAtrialRepolEnd: NaN,
   tSanActivation: NaN,
+  site: "",
+  parent: -1,
+  avnPath: "",
+  tApOut: NaN,
+  infraHisBlocked: false,
+  saExitBlocked: false,
 });
 
 export interface SimSnapshot {
@@ -89,7 +107,12 @@ export interface SimSnapshot {
   erp: Float32Array;
   lastWave: Int32Array;
   t50: Float32Array;
-  avnLastExit: number;
+  linkLastExit: Float64Array;
+  linkLastEntry: Float64Array;
+  linkDir: Int8Array;
+  linkTransit: Int32Array;
+  counters: { ectopy: number; san: number; his: number; focusEpoch: number };
+  childOf: [number, number][];
   waveCounter: number;
   active: Int32Array;
   rng: number;
@@ -113,7 +136,6 @@ export interface SimOutput {
   waves: WaveInfo[];
 }
 
-const NEVER = -1e9;
 
 export class Simulator {
   readonly model: CardiacModel;
@@ -129,7 +151,16 @@ export class Simulator {
   erp: Float32Array;
   t50: Float32Array;
   lastWave: Int32Array;
-  avnLastExit = NEVER;
+  /** Lumped-link state (model.links order). */
+  linkLastExit: Float64Array;
+  linkLastEntry: Float64Array;
+  linkDir: Int8Array;
+  linkTransit: Int32Array;
+  readonly linkOf: Int16Array;
+  readonly upperMask: Uint8Array;
+  counters = { ectopy: 0, san: 0, his: 0, focusEpoch: 0 };
+  /** Re-entry bookkeeping: wave → wave id used for its re-excitations. */
+  childOf = new Map<number, number>();
   waveCounter = 0;
   queue = new EventQueue();
   rng: Rng;
@@ -173,8 +204,24 @@ export class Simulator {
     this.inActive = new Uint8Array(n);
     this.notchScale = new Float32Array(n);
     for (let i = 0; i < n; i++) this.notchScale[i] = model.cellType[i] === CT.VENTRICULAR ? ventricularNotchScale(model.transmural[i]) : 1;
+    const L = model.links.length;
+    this.linkLastExit = new Float64Array(L);
+    this.linkLastEntry = new Float64Array(L);
+    this.linkDir = new Int8Array(L);
+    this.linkTransit = new Int32Array(L);
+    this.linkOf = new Int16Array(n).fill(-1);
+    this.upperMask = new Uint8Array(n);
+    model.links.forEach((l, li) => {
+      this.linkOf[l.node] = li;
+      for (const u of l.upper) this.upperMask[u] |= 1 << li;
+    });
     this.rng = new Rng(params.seed);
     this.reset();
+  }
+
+  /** The AV-nodal fast pathway is link 0 (kept for API compatibility). */
+  get avnLastExit(): number {
+    return this.linkLastExit[0];
   }
 
   /** Initial state approximates steady state at the sinus cycle length. */
@@ -194,7 +241,12 @@ export class Simulator {
       this.inActive[i] = 0;
     }
     this.activeLen = 0;
-    this.avnLastExit = -cl + 100;
+    this.linkLastExit.fill(-cl + 100);
+    this.linkLastEntry.fill(-cl + 40);
+    this.linkDir.fill(0);
+    this.linkTransit.fill(0);
+    this.counters = { ectopy: 0, san: 0, his: 0, focusEpoch: 0 };
+    this.childOf.clear();
     this.waveCounter = 0;
     this.queue.clear();
     this.waves.clear();
@@ -215,11 +267,22 @@ export class Simulator {
     this.queue.push(40, m.san, -1, -1, EV_AUTO, this.lastAct[m.san]);
     this.queue.push(this.lastAct[m.hisProximal] + this.d.junctionalCycle, m.hisProximal, -1, -1, EV_AUTO, this.lastAct[m.hisProximal]);
     this.queue.push(this.lastAct[m.ventEscape] + this.d.ventricularEscapeCycle, m.ventEscape, -1, -1, EV_AUTO, this.lastAct[m.ventEscape]);
+    this.armFocus(Math.max(100, this.params.ectopy.coupling));
+  }
+
+  /** Schedule the next tick of a protected automatic focus ("focus" ectopy pattern). */
+  private armFocus(at: number): void {
+    const e = this.params.ectopy;
+    if (e.site === "none" || e.pattern !== "focus") return;
+    const node = this.model.ectopicSites[e.site];
+    if (node === undefined) return;
+    this.queue.push(at, node, -5, -1, EV_EXCITE, this.counters.focusEpoch);
   }
 
   /** Apply new parameters from the current simulation time onward. */
   setParams(p: SimParams): void {
     const old = this.d;
+    const oldParams = this.params;
     this.params = cloneParams(p);
     this.d = derive(this.model, this.params);
     const m = this.model;
@@ -233,6 +296,12 @@ export class Simulator {
     rearm(m.san, old.sinusCycle, this.d.sinusCycle);
     rearm(m.hisProximal, old.junctionalCycle, this.d.junctionalCycle);
     rearm(m.ventEscape, old.ventricularEscapeCycle, this.d.ventricularEscapeCycle);
+    const eo = JSON.stringify(oldParams.ectopy);
+    if (eo !== JSON.stringify(this.params.ectopy)) {
+      this.counters.focusEpoch++;
+      this.counters.ectopy = 0;
+      this.armFocus(this.time + Math.max(100, this.params.ectopy.coupling));
+    }
   }
 
   /** Inject an excitation (e.g. programmed stimulus) at `node` and time `t` (Phase 2 hook). */
@@ -254,7 +323,7 @@ export class Simulator {
     while (q.peekTime() <= T) {
       q.pop(ev);
       if (ev.kind === EV_AUTO) this.onAutomaticity(ev.time, ev.node, ev.stamp, ev.src);
-      else this.onExcite(ev.time, ev.node, ev.src, ev.wave);
+      else this.onExcite(ev.time, ev.node, ev.src, ev.wave, ev.stamp);
     }
   }
 
@@ -267,6 +336,11 @@ export class Simulator {
 
   private onAutomaticity(t: number, node: number, stamp: number, src: number): void {
     if (this.lastAct[node] !== stamp) return; // reset by an earlier activation → stale
+    if (node === this.model.san && this.params.rhythm.sinusArrest) {
+      // automaticity suppressed: keep a dormant check so that releasing the arrest resumes firing
+      this.queue.push(t + this.cycleOf(node), node, -1, -1, EV_AUTO, stamp);
+      return;
+    }
     const due = this.lastAct[node] + this.cycleOf(node);
     if (src === -2 && t < due - 1e-9) {
       // re-armed after a parameter change but not yet due
@@ -282,31 +356,72 @@ export class Simulator {
     this.activate(node, t, id, true);
   }
 
-  private onExcite(t: number, node: number, src: number, wave: number): void {
-    const m = this.model;
-    if (node === m.avn) {
-      this.onAvNode(t, src, wave);
+  private onExcite(t: number, node: number, src: number, wave: number, stamp = 0): void {
+    const li = this.linkOf[node];
+    if (li >= 0) {
+      this.onLink(t, li, src, wave);
       return;
+    }
+    // exits of a link that has since been extinguished by collision are void
+    if (src >= 0 && this.linkOf[src] >= 0 && stamp !== this.linkTransit[this.linkOf[src]]) return;
+    if (src === -5) {
+      // protected automatic focus: next tick is independent of capture (no overdrive reset)
+      if (stamp !== this.counters.focusEpoch) return;
+      this.armFocus(t + 60000 / Math.max(1, this.params.ectopy.rate));
     }
     if (t - this.lastAct[node] < this.erp[node]) return; // refractory → conduction block here
     if (wave < 0) {
-      // externally injected stimulus
+      // externally injected stimulus or ectopic focus
       wave = ++this.waveCounter;
-      this.waves.set(wave, newWave(wave, "ectopic", node, t));
+      const w = newWave(wave, "ectopic", node, t);
+      w.site = src === -4 || src === -5 ? this.params.ectopy.site : "stimulus";
+      this.waves.set(wave, w);
+    } else if (this.lastWave[node] === wave && src >= 0) {
+      // the same wave re-excites tissue it already activated → a re-entrant cycle has completed
+      wave = this.childWave(wave, node, t, "reentry");
     }
     this.activate(node, t, wave, false);
   }
 
-  /** Lumped AV node: directional, recovery-dependent conduction (Sun et al. 1995, recovery term). */
-  private onAvNode(t: number, src: number, wave: number): void {
+  private childWave(parent: number, node: number, t: number, origin: WaveOrigin, site = ""): number {
+    const c = this.childOf.get(parent);
+    if (c !== undefined) return c;
+    const id = ++this.waveCounter;
+    const w = newWave(id, origin, node, t);
+    w.parent = parent;
+    w.site = site;
+    this.waves.set(id, w);
+    this.childOf.set(parent, id);
+    return id;
+  }
+
+  /**
+   * Lumped directional link (AV-nodal fast or slow pathway, accessory pathway).
+   * Delay = base + amplitude·exp(−(R − ERP)/τ) (Sun et al. 1995 recovery term for nodal tissue;
+   * amplitude 0 = non-decremental). R is measured from the previous exit (fast pathway, as in
+   * Phase 1) or from the previous invasion (slow and accessory pathways). An impulse arriving
+   * from the opposite end while one is in transit collides and both are extinguished.
+   */
+  private onLink(t: number, li: number, src: number, wave: number): void {
     const m = this.model;
-    const a = this.d.avn;
-    const antegrade = src >= 0 && m.cellType[src] === CT.ATRIAL;
-    if (!antegrade && !a.retrograde) return;
-    const R = t - this.avnLastExit;
+    const L = this.d.links[li];
+    if (!L.enabled) return;
+    const link = m.links[li];
+    const ante = src >= 0 && ((this.upperMask[src] >> li) & 1) === 1;
+    if (ante ? !L.ante : L.retro === "blocked") return;
+    const dir = ante ? 1 : -1;
+    if (this.linkLastExit[li] > t && this.linkDir[li] !== dir) {
+      // collision inside the pathway
+      this.linkTransit[li]++;
+      this.linkLastExit[li] = t;
+      return;
+    }
+    const R = L.recoveryFrom === "exit" ? t - this.linkLastExit[li] : t - this.linkLastEntry[li];
+    const erp = ante ? L.anteErp : L.retroErp;
     const w = this.waves.get(wave);
-    if (R < a.erp) {
-      if (w && antegrade && !w.avnBlocked && Number.isNaN(w.tAvnOut)) {
+    const isAvn = link.id === "avn-fast" || link.id === "avn-slow";
+    if (R < erp) {
+      if (w && ante && isAvn && !w.avnBlocked && Number.isNaN(w.tAvnOut)) {
         w.avnBlocked = true;
         w.tAvnIn = t;
         w.avnRecovery = R;
@@ -314,19 +429,34 @@ export class Simulator {
       }
       return;
     }
-    const delay = a.ahMin + a.amplitude * Math.exp(-(R - a.erp) / a.tau);
+    const delay = (ante ? L.anteBase : L.retroBase) + L.amplitude * Math.exp(-(R - erp) / L.tau);
+    this.linkLastEntry[li] = t;
+    this.linkDir[li] = dir;
+    const transit = ++this.linkTransit[li];
+    if (!ante && L.retro === "concealed") {
+      // concealed conduction: penetrates (and leaves the node refractory) without reaching the atria
+      this.linkLastExit[li] = t + 0.5 * delay;
+      return;
+    }
     const exit = t + delay;
-    this.avnLastExit = exit;
-    // Record nodal "activation" for display (AP of compact node starts at entry)
-    this.activateRecordOnly(m.avn, t, wave);
-    if (w) {
+    this.linkLastExit[li] = exit;
+    this.activateRecordOnly(link.node, t, wave);
+    let outWave = wave;
+    if (w && ante && isAvn && (Number.isNaN(w.tAvnOut) || exit < w.tAvnOut)) {
       w.tAvnIn = t;
       w.tAvnOut = exit;
       w.avnRecovery = R;
+      w.avnBlocked = false;
+      w.avnPath = link.id;
+      this.touched.add(wave);
+    } else if (w && ante && !isAvn) {
+      w.tApOut = Number.isNaN(w.tApOut) ? exit : Math.min(w.tApOut, exit);
       this.touched.add(wave);
     }
-    if (antegrade) this.queue.push(exit, m.hisProximal, m.avn, wave, EV_EXCITE);
-    else for (const i of m.avnAtrialInputs) this.queue.push(exit, i, m.avn, wave, EV_EXCITE);
+    if (!ante && wave >= 0) {
+      outWave = this.childWave(wave, link.node, exit, "retrograde", link.id);
+    }
+    for (const i of ante ? link.lower : link.upper) this.queue.push(exit, i, link.node, outWave, EV_EXCITE, transit);
   }
 
   private activateRecordOnly(node: number, t: number, wave: number): void {
@@ -371,7 +501,26 @@ export class Simulator {
     if (node === m.san || node === m.hisProximal || node === m.ventEscape) {
       this.queue.push(t + this.cycleOf(node), node, -1, -1, EV_AUTO, t);
     }
-    void spontaneous;
+    const w = this.waves.get(wave);
+    if (node === m.san && spontaneous) {
+      const k = this.params.rhythm.saExitBlockEvery;
+      if (k >= 2 && ++this.counters.san % k === 0) {
+        if (w) w.saExitBlocked = true;
+        return; // the node fires but the impulse does not exit
+      }
+    }
+    let infraBlock = false;
+    if (node === m.hisDistal) {
+      const hp = this.params.hisPurkinje;
+      const antegrade = !w || Number.isNaN(w.tFirstVent);
+      if (hp.infraHisComplete) infraBlock = true;
+      else if (antegrade && hp.infraHisBlockEvery >= 2 && ++this.counters.his % hp.infraHisBlockEvery === 0) infraBlock = true;
+      if (infraBlock && w && antegrade) {
+        w.infraHisBlocked = true;
+        this.touched.add(wave);
+      }
+    }
+    const infraComplete = this.params.hisPurkinje.infraHisComplete;
 
     // Propagate to neighbours
     const ra = this.params.restitution.cvAmplitude;
@@ -379,8 +528,15 @@ export class Simulator {
     for (let q = m.adjStart[node]; q < m.adjStart[node + 1]; q++) {
       const j = m.adjNode[q];
       let delay = d.edgeDelay[q];
+      if (delay === Infinity) continue; // blocked conduction-system segment
+      if (node === m.hisDistal && infraBlock && m.adjKind[q] !== EK.HIS) continue;
+      if (j === m.hisDistal && infraComplete && m.adjKind[q] !== EK.HIS) continue;
+      if (this.linkOf[j] >= 0) {
+        this.queue.push(t, j, node, wave, EV_EXCITE);
+        continue;
+      }
       const arrival0 = t + delay;
-      if (j !== m.avn) {
+      {
         // skip neighbours that will certainly still be refractory on arrival
         if (arrival0 - this.lastAct[j] < this.erp[j]) continue;
         if (d.edgeRestitutes[q] && ra > 0) {
@@ -388,8 +544,6 @@ export class Simulator {
           const f = 1 - ra * Math.exp(-Math.max(0, dij) / rt);
           delay /= Math.max(0.05, f);
         }
-      } else if (m.adjKind[q] === EK.AVN_OUT && node !== m.hisProximal) {
-        continue;
       }
       this.queue.push(t + delay, j, node, wave, EV_EXCITE);
     }
@@ -408,6 +562,7 @@ export class Simulator {
         w.tSanActivation = first(w.tSanActivation);
         break;
       case CT.ATRIAL:
+        if (Number.isNaN(w.tFirstAtrial)) this.onReferenceBeat(w, t, true);
         w.tFirstAtrial = first(w.tFirstAtrial);
         w.tLastAtrial = Number.isNaN(w.tLastAtrial) ? t : Math.max(w.tLastAtrial, t);
         w.atrialCount++;
@@ -424,6 +579,7 @@ export class Simulator {
         else if (reg === 13) w.tFirstPurkinjeRV = first(w.tFirstPurkinjeRV);
         break;
       case CT.VENTRICULAR:
+        if (Number.isNaN(w.tFirstVent)) this.onReferenceBeat(w, t, false);
         if (Number.isNaN(w.tFirstVent) || t < w.tFirstVent) {
           w.tFirstVent = t;
           w.firstVentNode = node;
@@ -436,6 +592,42 @@ export class Simulator {
         w.tVentRepolEnd = Number.isNaN(w.tVentRepolEnd) ? t + apd : Math.max(w.tVentRepolEnd, t + apd);
         break;
     }
+  }
+
+  /**
+   * Coupled ectopy: after a non-ectopic beat reaches the focus' chamber, schedule ectopic
+   * stimuli at the coupling interval according to the selected pattern (deterministic).
+   */
+  private onReferenceBeat(w: WaveInfo, t: number, atrial: boolean): void {
+    const e = this.params.ectopy;
+    if (e.site === "none" || e.pattern === "focus") return;
+    if (w.origin !== "sinus" && w.origin !== "junctional" && w.origin !== "ventricular-escape") return;
+    if (isAtrialSite(e.site) !== atrial) return;
+    const node = this.model.ectopicSites[e.site];
+    if (node === undefined) return;
+    const c = ++this.counters.ectopy;
+    let n = 0;
+    switch (e.pattern) {
+      case "bigeminy":
+        n = 1;
+        break;
+      case "trigeminy":
+        n = c % 2 === 0 ? 1 : 0;
+        break;
+      case "single":
+        n = c % Math.max(1, e.every) === 0 ? 1 : 0;
+        break;
+      case "once":
+        n = c === Math.max(1, e.every) ? 1 : 0;
+        break;
+      case "couplet":
+        n = c % Math.max(1, e.every) === 0 ? 2 : 0;
+        break;
+      case "run":
+        n = c % Math.max(1, e.every) === 0 ? e.runLength : 0;
+        break;
+    }
+    for (let k = 1; k <= n; k++) this.queue.push(t + k * e.coupling, node, -4, -1, EV_EXCITE, 0);
   }
 
   /** Compute one ECG sample at time T from the current membrane-potential field. */
@@ -487,6 +679,7 @@ export class Simulator {
     this.touched.clear();
     // forget waves that are long finished
     for (const [id, w] of this.waves) if (w.t0 < this.time - 20000) this.waves.delete(id);
+    for (const [p] of this.childOf) if (!this.waves.has(p)) this.childOf.delete(p);
     return out;
   }
 
@@ -500,7 +693,12 @@ export class Simulator {
       erp: this.erp.slice(),
       lastWave: this.lastWave.slice(),
       t50: this.t50.slice(),
-      avnLastExit: this.avnLastExit,
+      linkLastExit: this.linkLastExit.slice(),
+      linkLastEntry: this.linkLastEntry.slice(),
+      linkDir: this.linkDir.slice(),
+      linkTransit: this.linkTransit.slice(),
+      counters: { ...this.counters },
+      childOf: [...this.childOf],
       waveCounter: this.waveCounter,
       active: this.active.slice(0, this.activeLen),
       rng: this.rng.state,
@@ -520,7 +718,12 @@ export class Simulator {
     this.erp.set(s.erp);
     this.lastWave.set(s.lastWave);
     this.t50.set(s.t50);
-    this.avnLastExit = s.avnLastExit;
+    this.linkLastExit.set(s.linkLastExit);
+    this.linkLastEntry.set(s.linkLastEntry);
+    this.linkDir.set(s.linkDir);
+    this.linkTransit.set(s.linkTransit);
+    this.counters = { ...s.counters };
+    this.childOf = new Map(s.childOf);
     this.waveCounter = s.waveCounter;
     this.inActive.fill(0);
     this.active.set(s.active);

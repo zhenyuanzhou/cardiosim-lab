@@ -12,8 +12,8 @@ import type { WaveInfo } from "../../simulation/core/engine";
 export interface ParamChange {
   id: number;
   path: string;
-  from: number | boolean;
-  to: number | boolean;
+  from: number | boolean | string;
+  to: number | boolean | string;
   at: number; // simulation time the change took effect
 }
 
@@ -92,7 +92,7 @@ export function explain(change: ParamChange, beats: BeatMeasurement[], waves: Ma
       if (Math.abs(y - x) >= tol) effects.push({ label, before: x, after: y, unit, source });
     }
   }
-  const fmt = (v: number | boolean) => (typeof v === "boolean" ? (v ? "on" : "off") : `${+v.toFixed(3)}`);
+  const fmt = (v: number | boolean | string) => (typeof v === "boolean" ? (v ? "on" : "off") : typeof v === "string" ? v : `${+v.toFixed(3)}`);
   return {
     change,
     title: meta ? `${meta.label}: ${fmt(change.from)} → ${fmt(change.to)} ${meta.unit}` : `${change.path}: ${fmt(change.from)} → ${fmt(change.to)}`,

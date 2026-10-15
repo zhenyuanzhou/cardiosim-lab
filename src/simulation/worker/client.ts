@@ -9,6 +9,7 @@ import type { WaveInfo } from "../core/engine";
 import { N_CHANNELS } from "../ecg-forward/leadField";
 import { measureBeats, type BeatMeasurement } from "../ecg-forward/measurements";
 import type { FromWorker, ModelMeta, ToWorker } from "./protocol";
+import type { SurfaceMesh } from "../tissue/surfaces";
 import SimWorker from "./simWorker?worker&inline";
 import { SimHost } from "./simHost";
 
@@ -200,6 +201,7 @@ export class SimData {
 
 export type ClientEvent =
   | { type: "ready"; meta: ModelMeta; buildMs: number }
+  | { type: "surfaces" }
   | { type: "data" }
   | { type: "error"; message: string }
   | { type: "compare"; result: Extract<FromWorker, { type: "compareResult" }> };
@@ -207,6 +209,7 @@ export type ClientEvent =
 export class SimClient {
   meta: ModelMeta | null = null;
   data: SimData | null = null;
+  surfaces: SurfaceMesh[] | null = null;
   epoch = 0;
   lastComputeMs = 0;
   usingWorker = true;
@@ -317,6 +320,10 @@ export class SimClient {
         this.emit({ type: "ready", meta: m.meta, buildMs: m.buildMs });
         this.post({ type: "extend", until: 8000, epoch: this.epoch });
         this.pendingExtend = 8000;
+        break;
+      case "surfaces":
+        this.surfaces = m.surfaces;
+        this.emit({ type: "surfaces" });
         break;
       case "chunk":
         if (m.epoch !== this.epoch || !this.data) return;

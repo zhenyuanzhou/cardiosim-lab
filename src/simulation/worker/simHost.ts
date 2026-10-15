@@ -9,6 +9,7 @@ import { buildCardiacModel } from "../tissue/buildModel";
 import { Simulator, type SimSnapshot } from "../core/engine";
 import { computeLeadField } from "../ecg-forward/leadField";
 import { measureBeats } from "../ecg-forward/measurements";
+import { buildSurfaces } from "../tissue/surfaces";
 import type { SimParams } from "../core/params";
 import type { FromWorker, ModelMeta, ToWorker } from "./protocol";
 
@@ -79,6 +80,15 @@ export class SimHost {
     };
     this.post({ type: "ready", meta, buildMs });
     this.start(params, dt);
+    // anatomical surfaces for the 3-D view (visual only) — sent after the simulation has started
+    setTimeout(() => {
+      const t1 = performance.now();
+      const surfaces = buildSurfaces(model);
+      this.post(
+        { type: "surfaces", surfaces, ms: performance.now() - t1 },
+        surfaces.flatMap((s) => [s.positions.buffer, s.indices.buffer, s.vNodes.buffer, s.vWeights.buffer, s.vRegion.buffer]),
+      );
+    }, 50);
   }
 
   private start(params: SimParams, dt: number): void {

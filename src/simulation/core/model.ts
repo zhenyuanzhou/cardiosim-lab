@@ -31,6 +31,8 @@ export const RG = {
   LV: 14,
   SEPTUM: 15,
   RV: 16,
+  ACCESSORY: 17,
+  AVN_SLOW: 18,
 } as const;
 export type Region = (typeof RG)[keyof typeof RG];
 export const REGION_NAMES = [
@@ -51,6 +53,8 @@ export const REGION_NAMES = [
   "LV free wall",
   "Interventricular septum",
   "RV free wall",
+  "Accessory pathway",
+  "AV node slow pathway",
 ];
 
 /** Edge kinds; each kind maps onto a conduction-velocity parameter. */
@@ -102,9 +106,24 @@ export interface CardiacModel {
   conductionPaths: { region: Region; nodes: number[] }[];
   /** Representative nodes for the action-potential panel. */
   probes: Probe[];
+  /**
+   * Lumped directional links (AV node fast pathway = index 0, AV node slow pathway = 1,
+   * accessory pathways ≥ 2). Each joins "upper" (atrial) nodes to "lower" nodes.
+   */
+  links: LumpedLink[];
+  /** Named ectopic / pacing sites → node index. */
+  ectopicSites: Record<string, number>;
   /** Frame used to build the anatomy. */
   frame: { baseCenter: Vec3; axis: Vec3; septalDir: Vec3; anteriorDir: Vec3 };
   counts: { atrial: number; ventricular: number; conduction: number };
+}
+
+export interface LumpedLink {
+  id: string;
+  label: string;
+  node: number;
+  upper: number[];
+  lower: number[];
 }
 
 export interface Probe {

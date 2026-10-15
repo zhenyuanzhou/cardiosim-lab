@@ -266,6 +266,8 @@ export function buildCardiacModel(h = 2.5): CardiacModel {
     hisDistal: cs.hisDistal,
     ventEscape: cs.ventEscape,
     avnAtrialInputs: Int32Array.from(cs.avnInputs),
+    links: cs.links,
+    ectopicSites: cs.ectopicSites,
     conductionPaths: cs.paths,
     probes,
     frame: { baseCenter: sub(f.base, shift), axis: f.d, septalDir: f.u0, anteriorDir: f.u1 },

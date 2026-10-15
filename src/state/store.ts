@@ -3,6 +3,7 @@ import { DEFAULT_PARAMS, cloneParams, type SimParams } from "../simulation/core/
 import { SimClient } from "../simulation/worker/client";
 import type { ParamChange } from "../components/education/explainEngine";
 import type { FromWorker } from "../simulation/worker/protocol";
+import type { ActivationDisplay, HeartLayers, Highlight } from "../visualization/heart/HeartScene";
 
 /** The one simulation client shared by every view. */
 export const sim = new SimClient();
@@ -14,8 +15,16 @@ export const sim = new SimClient();
  */
 export const clock = { t: 0, lastWall: 0 };
 
-export type HeartColor = "vm" | "activation" | "state";
-export type Tab = "scenarios" | "parameters" | "explain" | "events" | "validation" | "compare" | "about";
+export type Mode = "simulator" | "explorer" | "split";
+export interface TorsoLayers {
+  torso: boolean;
+  electrodes: boolean;
+  leadAxes: boolean;
+  projection: boolean;
+  heart: boolean;
+  sensitivity: boolean;
+}
+export type Tab = "scenarios" | "parameters" | "explain" | "lessons" | "events" | "validation" | "compare" | "about";
 export type CompareResult = Extract<FromWorker, { type: "compareResult" }> & { a_params: SimParams; b_params: SimParams };
 
 export interface UIState {
@@ -34,8 +43,11 @@ export interface UIState {
   selectedLeads: string[];
   ecgTool: "inspect" | "calipers";
   calipers: number[];
-  heartColor: HeartColor;
-  layers: { atria: boolean; ventricles: boolean; conduction: boolean; cutaway: boolean; labels: boolean };
+  heartLayers: HeartLayers;
+  heartOpacity: number;
+  activationDisplay: ActivationDisplay;
+  highlight: Highlight | null;
+  customLabel: string;
   probes: string[];
   customNode: number | null;
   baselineA: SimParams | null;
@@ -45,6 +57,12 @@ export interface UIState {
   inspectT: number | null;
   tab: Tab;
   theme: "dark" | "light";
+  mode: Mode;
+  maximized: string | null;
+  present: boolean;
+  explorerLeads: string[];
+  torsoLayers: TorsoLayers;
+  experimentId: string | null;
   set: (p: Partial<UIState>) => void;
 }
 
@@ -64,8 +82,22 @@ export const useStore = create<UIState>((set) => ({
   selectedLeads: ["II", "V1", "V5"],
   ecgTool: "inspect",
   calipers: [],
-  heartColor: "vm",
-  layers: { atria: true, ventricles: true, conduction: true, cutaway: false, labels: true },
+  heartLayers: {
+    anatomy: true,
+    pathways: true,
+    activation: true,
+    repolarization: true,
+    refractory: false,
+    vectors: false,
+    mesh: false,
+    labels: true,
+    atria: true,
+    ventricles: true,
+  },
+  heartOpacity: 0.62,
+  activationDisplay: "live",
+  highlight: null,
+  customLabel: "Selected cell",
   probes: ["san", "ra", "avn", "his", "lvendo", "lvepi"],
   customNode: null,
   baselineA: null,
@@ -75,6 +107,12 @@ export const useStore = create<UIState>((set) => ({
   inspectT: null,
   tab: "parameters",
   theme: "dark",
+  mode: "simulator",
+  maximized: null,
+  present: false,
+  explorerLeads: ["II"],
+  torsoLayers: { torso: true, electrodes: true, leadAxes: true, projection: true, heart: true, sensitivity: false },
+  experimentId: null,
   set: (p) => set(p),
 }));
 

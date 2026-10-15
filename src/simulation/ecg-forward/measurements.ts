@@ -36,6 +36,12 @@ export interface BeatMeasurement {
   axisQRS: number;
   axisP: number | null;
   axisT: number | null;
+  /** QT − QRS (ms); the preferred repolarisation measure when QRS ≥ 120 ms. */
+  jt: number | null;
+  /** Origin of the complex from the model's wave record (ground-truth label, not an ECG reading). */
+  origin: string | null;
+  /** Caveats that apply to this beat's intervals (e.g. why PR is not reported). */
+  notes: string[];
   /** Model-internal timing of the wave that produced this QRS (if matched). */
   truth: {
     waveId: number;
@@ -101,8 +107,33 @@ export function measureBeats(ecg: Float32Array, dt: number, i0: number, waves: W
     while (on > 1 && !(D[on] < lowOn && D[on - 1] < lowOn)) on--;
     let off = p;
     while (off < n - 2 && !(D[off] < lowOn && D[off + 1] < lowOn && D[off + 2] < lowOn)) off++;
+    // Very broad (> 170 ms) complexes: repolarisation can begin before D reaches 4 % (no isoelectric ST). Take the
+    // first pronounced minimum of D (< 12 % of peak, followed by a rise of > 50 %) if it comes earlier.
+    if ((off - on) * dt > 170) {
+      const lim = Math.min(off, n - 3);
+      for (let k = Math.max(p + 1, on + Math.round(100 / dt)); k < lim; k++) {
+        if (D[k] < 0.12 * peak && D[k] <= D[k - 1] && D[k] <= D[k + 1]) {
+          let rise = D[k];
+          for (let q = k + 1; q < Math.min(lim, k + Math.round(60 / dt)); q++) rise = Math.max(rise, D[q]);
+          if (rise > 1.5 * D[k] + 0.02 * peak) {
+            off = k;
+            break;
+          }
+        }
+      }
+    }
     // Skip complexes truncated by the window edges
     if (on <= 2 || off >= n - 3) continue;
+    // A broad complex can produce two slope runs: merge with the previous complex if they overlap
+    const prevB = beats[beats.length - 1];
+    if (prevB && toT(on) <= prevB.qrsOff + 20) {
+      prevB.qrsOn = Math.min(prevB.qrsOn, toT(on));
+      prevB.qrsOff = Math.max(prevB.qrsOff, toT(off));
+      prevB.qrs = prevB.qrsOff - prevB.qrsOn;
+      if (prevB.qt !== null && prevB.tEnd !== null) prevB.qt = prevB.tEnd - prevB.qrsOn;
+      if (prevB.pOn !== null) prevB.pr = prevB.qrsOn - prevB.pOn;
+      continue;
+    }
 
     // ---- P wave -------------------------------------------------------------------
     let pOn: number | null = null;
@@ -174,7 +205,9 @@ export function measureBeats(ecg: Float32Array, dt: number, i0: number, waves: W
           }
           if (amp === maxAmp) pkBest = pk;
         }
-        if (latest > 0) {
+        // a T wave cut off by the end of the analysed window has no measurable end
+        const truncated = !nextRun && off + Math.round(520 / dt) >= n;
+        if (latest > 0 && !truncated) {
           tEndIdx = latest;
           tPeakIdx = pkBest > 0 ? pkBest : null;
           prevTEndIdx = latest;
@@ -211,6 +244,9 @@ export function measureBeats(ecg: Float32Array, dt: number, i0: number, waves: W
       axisQRS: axisOf(on, off),
       axisP: pOn !== null && pOff !== null && pOff > pOn ? axisOf(pOn, pOff) : null,
       axisT: tEndIdx !== null ? axisOf(off + Math.round(40 / dt), Math.min(n - 1, tEndIdx)) : null,
+      jt: tEndIdx !== null ? (tEndIdx - off) * dt : null,
+      origin: null,
+      notes: [],
       truth: null,
     };
     beats.push(m);
@@ -246,7 +282,37 @@ export function measureBeats(ecg: Float32Array, dt: number, i0: number, waves: W
         hisToV: Number.isFinite(best.tHisProximal) ? best.tFirstVent - best.tHisProximal : null,
         ah: Number.isFinite(best.tAvnOut) ? best.tAvnOut - best.tAvnIn : null,
       };
+      applyRhythmRules(b, best);
     }
   }
+  for (const b of beats) {
+    if (b.qrs >= 120 && b.qt !== null) b.notes.push("QRS ≥ 120 ms: QT includes prolonged depolarisation; use JT (QT − QRS) to judge repolarisation.");
+  }
   return beats;
+}
+
+/**
+ * Arrhythmia-aware interval rules (spec §7): a PR interval is reported only when the model
+ * confirms that the P wave and the QRS belong to the same antegradely conducted impulse.
+ */
+function applyRhythmRules(b: BeatMeasurement, w: WaveInfo): void {
+  const atrialFirst = Number.isFinite(w.tFirstAtrial) && w.tFirstAtrial < w.tFirstVent;
+  const viaAV = Number.isFinite(w.tAvnOut) || Number.isFinite(w.tApOut);
+  const atrialOrigin = w.origin === "sinus" || (w.origin === "ectopic" && atrialFirst) || w.origin === "retrograde" || w.origin === "reentry";
+  b.origin =
+    w.origin === "ectopic"
+      ? `ectopic (${w.site || "stimulus"})`
+      : w.origin === "retrograde"
+        ? `echo / re-entrant via ${w.site}`
+        : w.origin;
+  if (!(atrialFirst && viaAV && atrialOrigin)) {
+    if (b.pr !== null) b.notes.push("No P–QRS relationship for this complex (not conducted from a preceding P): PR not reported.");
+    b.pr = null;
+    b.pOn = null;
+    b.pOff = null;
+    b.axisP = null;
+  } else if (Number.isFinite(w.tApOut) && (!Number.isFinite(w.tAvnOut) || w.tApOut < w.tAvnOut + 5)) {
+    b.notes.push("Pre-excited complex: PR is measured to the onset of the delta wave (accessory-pathway conduction).");
+  }
+  if (w.origin === "ventricular-escape" || (w.origin === "ectopic" && !atrialFirst)) b.notes.push("Ventricular origin: QRS and repolarisation are secondary to abnormal activation.");
 }

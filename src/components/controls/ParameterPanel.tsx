@@ -1,11 +1,65 @@
 import { useMemo, useRef, useState } from "react";
-import { DEFAULT_PARAMS, PARAM_GROUPS, PARAM_META, getParam, setParam, type ParamMeta } from "../../simulation/core/params";
+import { DEFAULT_PARAMS, PARAM_GROUPS, PARAM_META, getParam, setParam, type ParamMeta, type ParamValue } from "../../simulation/core/params";
 import { sim, useStore } from "../../state/store";
 import { applyLive, loadScenarioJson, resetDefaults, restart, saveScenarioJson } from "../../state/actions";
 import { paramWarnings } from "../education/explainEngine";
 import { download } from "../../visualization/ecg/ECGPanel";
 
-function ParamRow({ m, onCommit }: { m: ParamMeta; onCommit: (path: string, v: number) => void }) {
+function SwitchRow({ m, onCommit }: { m: ParamMeta; onCommit: (path: string, v: ParamValue) => void }) {
+  const params = useStore((s) => s.params);
+  const v = getParam(params, m.path);
+  const ref = getParam(DEFAULT_PARAMS, m.path);
+  const [open, setOpen] = useState(false);
+  const id = `p-${m.path.replace(".", "-")}`;
+  return (
+    <div className="param" data-param={m.path}>
+      <div className="row">
+        {m.kind === "boolean" ? (
+          <label className="name" htmlFor={id}>
+            <input id={id} type="checkbox" checked={v as boolean} onChange={(e) => onCommit(m.path, e.target.checked)} /> {m.label}
+          </label>
+        ) : (
+          <>
+            <label className="name" htmlFor={id}>
+              {m.label}
+            </label>
+            <select id={id} value={v as string} onChange={(e) => onCommit(m.path, e.target.value)}>
+              {m.options!.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+        <span className={`val ${v !== ref ? "changed" : ""}`}>{v !== ref ? "changed" : ""}</span>
+      </div>
+      <div className="meta">
+        <span />
+        <button className="linkbtn" onClick={() => setOpen(!open)} aria-expanded={open}>
+          {open ? "less" : "why?"}
+        </button>
+      </div>
+      {open && (
+        <dl className="kv" style={{ marginTop: 4 }}>
+          <dt>Structure</dt>
+          <dd>{m.structure}</dd>
+          <dt>Mechanism</dt>
+          <dd>{m.mechanism}</dd>
+          <dt>Prediction</dt>
+          <dd>{m.prediction}</dd>
+        </dl>
+      )}
+    </div>
+  );
+}
+
+function ParamRow({ m, onCommit }: { m: ParamMeta; onCommit: (path: string, v: ParamValue) => void }) {
+  if (m.kind === "boolean" || m.kind === "choice") return <SwitchRow m={m} onCommit={onCommit} />;
+  return <NumberRow m={m} onCommit={onCommit} />;
+}
+
+function NumberRow({ m, onCommit }: { m: ParamMeta; onCommit: (path: string, v: ParamValue) => void }) {
   const params = useStore((s) => s.params);
   const committed = getParam(params, m.path) as number;
   const [draft, setDraft] = useState<number | null>(null);
@@ -99,7 +153,7 @@ export function ParameterPanel() {
   const ql = q.trim().toLowerCase();
   const match = (m: ParamMeta) => !ql || `${m.label} ${m.structure} ${m.group} ${m.mechanism}`.toLowerCase().includes(ql);
 
-  const onCommit = (path: string, v: number) => {
+  const onCommit = (path: string, v: ParamValue) => {
     const next = setParam(useStore.getState().params, path, v);
     set({ scenarioId: "custom" });
     if (mode === "live") {
@@ -176,21 +230,6 @@ export function ParameterPanel() {
           </details>
         );
       })}
-      <div className="toolbar">
-        <label htmlFor="retro">
-          <input
-            id="retro"
-            type="checkbox"
-            checked={params.avNode.retrograde}
-            onChange={(e) => {
-              const p = { ...params, avNode: { ...params.avNode, retrograde: e.target.checked } };
-              if (mode === "live") applyLive(p);
-              else restart(p);
-            }}
-          />
-          Retrograde AV nodal conduction
-        </label>
-      </div>
       <div className="toolbar">
         <label htmlFor="seed">
           Random seed
