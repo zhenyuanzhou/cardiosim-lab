@@ -5,10 +5,10 @@ import { sanitizeParams, DEFAULT_PARAMS, cloneParams } from "../../src/simulatio
 import { computeLeadField } from "../../src/simulation/ecg-forward/leadField";
 import { analyseMorphology } from "../../src/simulation/ecg-forward/morphology";
 const m = buildCardiacModel(); const W = computeLeadField(m);
-for (const [A,B] of [["rv-apex","lv-anterobasal"],["lv-lateral","septum"],["rvot","lv-inferobasal"]] as const)
-for (const ca of [250,280,300])
-for (const d of [5,10,20])
-for (const beats of [24]) {
+for (const [A,B] of [["rv-apex","lv-anterobasal"],["lv-lateral","septum"]] as const)
+for (const ca of [320,340,360])
+for (const d of [3,5,7])
+for (const beats of [14,18]) {
   const p=cloneParams(DEFAULT_PARAMS);
   p.ventricles.apd=Math.round(300*1.173); p.ventricles.transmuralGradient=Math.round(25*1.173); p.ventricles.apicobasalGradient=Math.round(-30*1.173);
   p.torsades={enabled:true,siteA:A as never,siteB:B as never,cycleA:ca,cycleB:ca+d,beats,every:9,coupling:390};
