@@ -5,12 +5,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { SCENARIOS } from "../../src/simulation/scenarios/scenarios";
-import { run, median } from "../helpers/sim";
+import { run, median, params } from "../helpers/sim";
 import type { WaveInfo } from "../../src/simulation/core/engine";
 import { RG } from "../../src/simulation/core/model";
 import { model } from "../helpers/sim";
 import { pace, TP06_DEFAULT_MODS, type TP06Mods } from "../../src/simulation/cellular/tp06";
 import { DRUG_BY_ID, drugMods } from "../../src/simulation/cellular/drugs";
+import { analyseMorphology } from "../../src/simulation/ecg-forward/morphology";
 
 const cellCache = new Map<string, ReturnType<typeof pace>>();
 /** Pace one epicardial TP06 cell with the given modifications (cached across tests). */
@@ -289,6 +290,83 @@ describe("Bundle branch block", () => {
     expect(model.region[l.lastVentNode]).toBe(RG.LV);
     // detector-measured QRS meets the conventional LBBB width criterion (≥ 140 ms, Strauss et al. 2011)
     expect(median(sc("lbbb").beats.map((b) => b.qrs))).toBeGreaterThanOrEqual(140);
+  });
+});
+
+describe("Group D — scar re-entry, polymorphic VT and fibrillation", () => {
+  /** Beat instants and axis dispersion of the tachycardia in the last part of a run. */
+  const tachy = (id: string, ms = 14000, from = 0.65) => {
+    const r = sc(id, ms);
+    const acts = r.waves.filter((w) => Number.isFinite(w.tFirstVent) && w.tFirstVent > ms * from).map((w) => w.tFirstVent).sort((a, b) => a - b);
+    const ivs = acts.slice(1).map((t, i) => t - acts[i]);
+    const cl = ivs.reduce((a, b) => a + b, 0) / ivs.length;
+    const reentry = r.waves.filter((w) => w.origin === "reentry").length;
+    return { acts, cl, reentry, disp: analyseMorphology(r.out.ecg, r.sim.dt, acts).axisDispersion };
+  };
+  /** Local activation interval at three separated ventricular sites — the clinical measurement. */
+  const localInterval = (id: string, ms = 14000) => {
+    const r = sc(id, ms);
+    const nodes = ["rvot", "lv-apex", "septum"].map((s) => model.ectopicSites[s]);
+    const all: number[] = [];
+    for (const n of nodes) {
+      const ts: number[] = [];
+      for (let k = 0; k < r.out.recT.length; k++) if (r.out.recNode[k] === n && r.out.recT[k] > ms * 0.65) ts.push(r.out.recT[k]);
+      ts.sort((a, b) => a - b);
+      for (let i = 1; i < ts.length; i++) all.push(ts[i] - ts[i - 1]);
+    }
+    const mean = all.reduce((a, b) => a + b, 0) / all.length;
+    const sd = Math.sqrt(all.reduce((a, b) => a + (b - mean) ** 2, 0) / all.length);
+    return { mean, cvPct: (100 * sd) / mean, n: all.length };
+  };
+  /** The same substrate with the inducing burst removed — must stay in sinus rhythm. */
+  const quiet = (id: string) => {
+    const p = SCENARIOS.find((x) => x.id === id)!.apply!();
+    p.ectopy = { ...p.ectopy, site: "none" };
+    return run(p, 12000);
+  };
+
+  it("scar-related VT", () => {
+    const t = tachy("vt-scar");
+    expect(t.reentry).toBeGreaterThan(5); // genuine re-entry, not repeated ectopy
+    expect(t.cl).toBeGreaterThan(240);
+    expect(t.cl).toBeLessThan(500); // clinical post-infarct VT range
+    expect(t.disp).toBeLessThan(30); // monomorphic: one repeating activation sequence
+    // and it must NOT start by itself — a scar substrate makes VT inducible, not spontaneous
+    expect(quiet("vt-scar").waves.filter((w) => w.origin === "reentry").length).toBe(0);
+  });
+
+  it("polymorphic VT", () => {
+    const t = tachy("pvt");
+    expect(t.reentry).toBeGreaterThan(5);
+    expect(t.cl).toBeGreaterThan(240);
+    expect(t.cl).toBeLessThan(500);
+    expect(t.disp).toBeGreaterThan(40); // changing QRS, unlike the monomorphic scenario
+    expect(t.disp).toBeGreaterThan(tachy("vt-scar").disp + 20);
+    expect(quiet("pvt").waves.filter((w) => w.origin === "reentry").length).toBe(0);
+  });
+
+  it("ventricular fibrillation", () => {
+    const t = tachy("vf");
+    expect(t.reentry).toBeGreaterThan(20); // many simultaneous wavelets
+    // Local activation interval against human VF in vivo: 218 ± 24 ms (Nair et al. 2012),
+    // dominant frequency 4.5–6.4 Hz (Bradley et al. 2011).
+    const l = localInterval("vf");
+    expect(l.mean).toBeGreaterThan(218 - 48); // within 2 SD of the measured mean
+    expect(l.mean).toBeLessThan(218 + 48);
+    expect(1000 / l.mean).toBeGreaterThan(3.5); // dominant-frequency sanity check
+    expect(1000 / l.mean).toBeLessThan(7);
+    expect(l.cvPct).toBeGreaterThan(5); // irregular, unlike monomorphic VT (≈ 1 %)
+    expect(t.disp).toBeGreaterThan(40);
+    expect(quiet("vf").waves.filter((w) => w.origin === "reentry").length).toBe(0);
+  });
+
+  it("re-entry cycle length is set by the refractory floor (documented limitation)", () => {
+    // This engine's functional re-entry has no excitable gap, so CL ≈ erpRatio × floor × APDref.
+    // The scenarios rely on that relationship for calibration, so it is pinned here.
+    const p = params({ restitution: { apdFloor: 0.79 }, ventricles: { heterogeneity: 0.2 } });
+    const predicted = p.ventricles.erpRatio * p.restitution.apdFloor * p.ventricles.apd;
+    const l = localInterval("vf");
+    expect(Math.abs(l.mean - predicted) / predicted).toBeLessThan(0.2);
   });
 });
 

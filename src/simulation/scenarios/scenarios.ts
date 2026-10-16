@@ -713,10 +713,92 @@ export const SCENARIOS: Scenario[] = [
     leads: ["II", "V1", "V6"],
     apply: P((p) => (p.ectopy = { ...p.ectopy, site: "rvot", pattern: "focus", rate: 170, coupling: 300 })),
   },
-  unsupported("vt-scar", "Scar-related re-entrant VT", "D · Ventricular", "a validated scar/isthmus geometry. A prototype exists (transmural LV scar with one slow isthmus and a slow border zone; hidden parameters ventricles.scar/isthmus*/border*), but in this event-driven graph it either re-entered spontaneously around the scar at an implausibly short cycle length (≈ 190 ms) or could not be induced by programmed stimulation — so it is not offered."),
-  unsupported("pvt", "Polymorphic VT", "D · Ventricular", "dynamically changing re-entry (wavebreak) — needs a continuum/ionic tissue model."),
-  unsupported("tdp", "Torsades de pointes", "D · Ventricular", "EAD-triggered activity arising in tissue with prolonged, heterogeneous repolarisation and the resulting re-entry; the ionic single-cell model can show EADs but tissue coupling is not implemented."),
-  unsupported("vf", "Ventricular fibrillation", "D · Ventricular", "multiple re-entrant wavelets / rotors with wavebreak — needs a monodomain or bidomain ionic tissue model."),
+  {
+    id: "vt-scar",
+    name: "Scar-related re-entrant VT (monomorphic)",
+    group: "D · Ventricular",
+    status: "partial",
+    modelClass: "mechanistic",
+    criteria: { ...ALL, mechanism: true },
+    mechanism:
+      "Anatomical re-entry around a healed infarct. A transmural scar core and the Purkinje fibres over it are non-conducting; one surviving isthmus crosses the scar slowly and has a longer refractory period, and a border zone of surviving myocardium conducts slowly around it. In sinus rhythm the wavefront enters the isthmus and simultaneously passes round the scar, and the two limbs collide, so nothing happens. A premature beat blocks in the isthmus, travels round the scar, re-enters the recovered isthmus from the far end and completes a circuit.",
+    structures: "LV inferolateral scar core, slow isthmus, border zone, surviving myocardium; the atria continue in sinus rhythm (AV dissociation).",
+    changes:
+      "Scar substrate on (isthmus CV × 0.18, border-zone CV × 0.12, isthmus APD × 1.3) with the refractory floor raised to 0.60 of reference APD; burst of 8 stimuli at 260 ms from the scar border after every 3rd sinus beat until re-entry starts.",
+    activation: "One wavefront circulates the scar, each beat with the same activation sequence — hence a monomorphic QRS. The atria are dissociated.",
+    ecg: "Regular wide-complex tachycardia, cycle length ≈ 280 ms (≈ 215 /min), with a constant QRS morphology (measured beat-to-beat axis dispersion ≈ 10°, against ≈ 1° for a focal VT and ≈ 60–85° for the polymorphic rhythms).",
+    initiation:
+      "Programmed stimulation only. The substrate is quiet in sinus rhythm — verified by running it without any stimulus — which is the behaviour a scar substrate should show: VT is inducible, not spontaneous.",
+    limitations:
+      "The cycle length is governed by the refractory floor as much as by the circuit, because this engine's re-entry has no excitable gap (see docs/SCIENTIFIC_LIMITATIONS.md); the floor is therefore raised for this scenario, which suppresses physiological APD shortening at short diastolic intervals. The scar geometry is an idealised sphere with one straight isthmus, not patient anatomy, and all three substrate factors are nominal. The slow border zone also distorts the baseline tracing: in sinus rhythm before induction this substrate gives QRS ≈ 112 ms and QT ≈ 560 ms, wider and longer than an uncomplicated post-infarct ECG. Entrainment, the response to pacing manoeuvres, and the relation between isthmus length and cycle length are not validated.",
+    validation: T("scar-related VT"),
+    leads: ["II", "V1", "V6"],
+    apply: P((p) => {
+      p.restitution.apdFloor = 0.6;
+      p.ventricles.scar = true;
+      p.ventricles.isthmusCvFactor = 0.18;
+      p.ventricles.borderCvFactor = 0.12;
+      p.ventricles.isthmusApdFactor = 1.3;
+      p.ectopy = { ...p.ectopy, site: "scar-border", pattern: "run", runLength: 8, coupling: 260, every: 3 };
+    }),
+  },
+  {
+    id: "pvt",
+    name: "Polymorphic VT",
+    group: "D · Ventricular",
+    status: "partial",
+    modelClass: "reduced-order",
+    criteria: { ...ALL, mechanism: false },
+    mechanism:
+      "Re-entry whose circuit moves from beat to beat, so the activation sequence — and therefore the QRS — keeps changing. Here the same scar substrate is used with a slower isthmus and a wider, less slowed border zone, so the circuit is unstable: wavefronts break and re-form around the scar instead of repeating one path.",
+    structures: "LV scar and border zone, surviving myocardium; atria dissociated.",
+    changes: "Scar substrate with isthmus CV × 0.12 and border-zone CV × 0.25, refractory floor 0.60; same burst as the monomorphic scenario.",
+    activation: "A changing circuit: each beat activates the ventricles differently.",
+    ecg: "Sustained wide-complex tachycardia, cycle length ≈ 310 ms (≈ 195 /min), with a continuously changing QRS — measured axis dispersion ≈ 61°, against ≈ 10° for the monomorphic scar VT in the same substrate.",
+    initiation: "Burst pacing, as for the monomorphic scenario; quiet in sinus rhythm.",
+    limitations:
+      "Reduced-order: the wave break arises from the imposed geometry and refractoriness, not from source–sink mismatch or wavefront curvature, which this engine does not represent. The model does not draw a sharp line between polymorphic VT and fibrillation — the two scenarios here differ in degree of organisation and rate, not in kind. Cycle length depends on the refractory floor as described for the monomorphic scenario. Baseline tracing in sinus rhythm shows QRS ≈ 132 ms and QT ≈ 506 ms.",
+    validation: T("polymorphic VT"),
+    leads: ["II", "V1", "V6"],
+    apply: P((p) => {
+      p.restitution.apdFloor = 0.6;
+      p.ventricles.scar = true;
+      p.ventricles.isthmusCvFactor = 0.12;
+      p.ventricles.borderCvFactor = 0.25;
+      p.ventricles.isthmusApdFactor = 1.3;
+      p.ectopy = { ...p.ectopy, site: "scar-border", pattern: "run", runLength: 8, coupling: 260, every: 3 };
+    }),
+  },
+  unsupported(
+    "tdp",
+    "Torsades de pointes",
+    "D · Ventricular",
+    "a mechanism this engine does not have. Torsades was attempted and the attempts are documented rather than dressed up as a result. (1) Initiation: a late-coupled R-on-T beat on a long-QT, heterogeneous substrate failed to start re-entry in all 30 combinations tried (coupling 280–400 ms × heterogeneity 0.15–0.25 × two sites); a single premature beat cannot break a wavefront here, because the engine has no source–sink or curvature physics. (2) Morphology: when re-entry is instead started with a burst on a long-QT substrate, the beat-to-beat axis rotates at chance consistency (≈ 53 %), i.e. randomly polymorphic — not the progressive twisting that defines torsades. (3) Rate: those rhythms run at a cycle length of 166–200 ms, in the fibrillation range rather than the 240–375 ms of torsades, and they are sustained rather than self-terminating. Offering any of them as torsades would be mislabelling. The long-QT substrate and the EAD-triggered beat that precede torsades clinically ARE available — see the EAD / DAD scenario and the IKr-blocking drug scenarios.",
+  ),
+  {
+    id: "vf",
+    name: "Ventricular fibrillation",
+    group: "D · Ventricular",
+    status: "partial",
+    modelClass: "reduced-order",
+    criteria: { ...ALL, mechanism: false },
+    mechanism:
+      "Multiple simultaneous re-entrant wavelets. Spatially dispersed refractoriness lets a rapid burst break into several independent circuits that continue to fragment and collide, so no region keeps a stable rhythm and the ventricles never activate as a whole.",
+    structures: "Both ventricles with a spatially heterogeneous refractory map (seeded, smoothed over ≈ 5 mm).",
+    changes: "Ventricular repolarisation dispersion SD 0.20 and refractory floor 0.79 of reference APD (calibrated — see limitations); burst of 14 stimuli at 240 ms from the RV apex after every 3rd sinus beat.",
+    activation: "Many small wavefronts at once, continuously breaking and re-forming; dozens of distinct re-entrant waves per run.",
+    ecg: "Continuous irregular undulation with no identifiable P wave, QRS or T wave, and no isoelectric baseline. Local activation interval ≈ 220 ms (≈ 4.5 Hz) with ≈ 10 % beat-to-beat variability.",
+    initiation: "Burst pacing. The substrate is quiet in sinus rhythm until the burst is delivered, and fibrillation then persists for the rest of the run.",
+    limitations:
+      "The cycle length is a CALIBRATION, not a prediction. Because re-entry in this engine has no excitable gap, its period is simply the refractory period: measured across 18 runs, cycle length was 0.408–0.422 × reference APD against a predicted 0.414. With the default floor the model fibrillates at ≈ 150 ms, far faster than human VF, so the floor was raised to 0.79 to bring the local activation interval to 220 ms — against measured human VF of 218 ± 24 ms in vivo (Nair et al. 2012) and a dominant frequency of 4.5–6.4 Hz (Bradley et al. 2011). That calibration suppresses physiological APD shortening at short diastolic intervals. Wavelet dynamics are qualitative: there is no source–sink mismatch, wavefront curvature or rotor meander, phase singularities are not computed, and the fibrillatory waveform's amplitude and spectrum are not validated. The dispersion map is a smoothed random field, not patient anatomy, and its magnitude is nominal; it also lengthens the baseline QT (≈ 420 ms in sinus rhythm before induction).",
+    validation: T("ventricular fibrillation"),
+    leads: ["II", "V1", "V5"],
+    apply: P((p) => {
+      p.restitution.apdFloor = 0.79;
+      p.ventricles.heterogeneity = 0.2;
+      p.ectopy = { ...p.ectopy, site: "rv-apex", pattern: "run", runLength: 14, coupling: 240, every: 3 };
+    }),
+  },
   // ---------------------------------------------------------------- Conduction (BBB)
   {
     id: "rbbb",

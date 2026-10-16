@@ -1,5 +1,60 @@
 # Changelog
 
+## [1.1.0] — 2026-10-16
+
+Seven of the eight scenarios that v1.0.0 listed as "not supported yet" are now implemented, tested
+and runnable. Each is built on measured data, and where a mechanism could not be reproduced
+honestly it is still refused — with the evidence recorded.
+
+### New scenarios
+- **Hypercalcaemia and hypocalcaemia.** The ionic cell model is deliberately NOT used: TP06
+  lengthens the action potential when extracellular calcium rises (measured here: epicardial APD90
+  255 → 337 ms as [Ca²⁺]o goes 1 → 3 mM), the opposite of the clinical QT–calcium relationship.
+  The tissue effect instead uses the human slope of 30.1 ms of QT per mmol/L of total serum calcium
+  (Young et al. 2021, Mendelian randomisation in UK Biobank, n = 76 226). Simulated QT 374 → 348 ms
+  at 3.2 mmol/L and → 398 ms at 1.6 mmol/L, QRS unchanged — matching the absence of a calcium–QRS
+  association in that study. The Ionic cell tab keeps a calcium slider so the model's disagreement
+  stays visible, and a test pins both directions.
+- **EAD / DAD triggered activity.** IKr block alone produces no EADs in TP06 at any degree of
+  block; the published modification that shortens the ICaL f-gate time constant does (Vandersickel
+  et al. 2014), and DADs need an added RyR leak. Both are presets in the Ionic cell tab, labelled
+  as modifications of the model rather than emergent behaviour. The measured takeoff times — EAD
+  393 ms, DAD 403 ms — set the coupling interval of the tissue scenario.
+- **Drug-induced effects** (dofetilide, quinidine, flecainide, verapamil), from the measured IC50
+  values of the CiPA ion-channel panel (Crumb et al. 2016) with the Hill equation. Dofetilide and
+  quinidine prolong QT; flecainide widens QRS 86 → 92 ms; verapamil *shortens* QT to 288 ms despite
+  hERG affinity, because its ICaL block dominates — the standard explanation for its low torsade
+  risk.
+- **Scar-related monomorphic VT.** Anatomical re-entry around a transmural scar with one slow
+  isthmus: inducible by burst pacing, quiet in sinus rhythm, sustained at ≈ 280 ms with a constant
+  QRS (axis dispersion ≈ 10°).
+- **Polymorphic VT.** The same substrate with a slower isthmus and wider border zone gives an
+  unstable circuit: ≈ 310 ms with a continuously changing QRS (axis dispersion ≈ 61°).
+- **Ventricular fibrillation.** Multiple wavelets from a dispersed refractory map, local activation
+  interval 220 ms against measured human VF of 218 ± 24 ms (Nair et al. 2012).
+
+### Still refused, with evidence
+- **Torsades de pointes** remains unsupported. A late-coupled R-on-T beat failed to start re-entry
+  in all 30 combinations tried; burst-induced rhythms on a long-QT substrate rotate at chance
+  consistency (≈ 53 %) rather than twisting progressively, and run at 166–200 ms — fibrillation
+  rates, not the 240–375 ms of torsades. The scenario entry records all three findings.
+
+### Engine
+- The APD floor is now a parameter. It was a numerical safeguard, but it turns out to govern the
+  period of every functional re-entry in this engine, which has no excitable gap: measured across
+  18 fibrillation runs, cycle length was 0.408–0.422 × reference APD against a predicted 0.414.
+  Fibrillation cycle length is therefore a calibration, not a prediction, and says so.
+- Ventricular repolarisation dispersion added (the polymorphic/VF substrate).
+- Beat-to-beat axis analysis (`morphology.ts`) so "polymorphic" is measured, not asserted.
+
+### Fixed
+- Panel B (cellular action potentials) swept a 2 s sub-page while the 12-lead panel swept the full
+  10 s page, so the two disagreed about which beats were on screen. Both now sweep the same page.
+
+### Quality
+- 88 unit tests (was 75), 20 end-to-end tests.
+
+
 ## [1.0.0] — 2026-10-15
 
 First versioned release of CardioSim Lab: an educational, reduced-order cardiac electrophysiology and 12-lead ECG simulator. Not for clinical use.
@@ -35,7 +90,7 @@ First versioned release of CardioSim Lab: an educational, reduced-order cardiac 
 - **8 partial:**
   - focal VT;
   - TP06-mapped IKr inhibition 50 % and 90 %, short QT, hyper- and hypokalaemia, Na⁺- and Ca²⁺-channel block.
-- **8 unsupported** (labelled, not runnable): scar VT, polymorphic VT, TdP, VF, hyper- and hypocalcaemia, EAD/DAD, drug-specific arrhythmias.
+- **8 unsupported** (labelled, not runnable): scar VT, polymorphic VT, TdP, VF, hyper- and hypocalcaemia, EAD/DAD, drug-specific arrhythmias. *(All but torsades implemented in 1.1.0.)*
 
 ### Interface
 - **Modes:** Simulator, Leads & Vectors (torso, electrodes, lead geometry, hexaxial and horizontal planes, dipole projection), Split view, A/B side-by-side.

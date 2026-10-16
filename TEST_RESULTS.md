@@ -1,8 +1,8 @@
-# Test results — Phase 2
+# Test results — v1.1.0
 
-Run on the Phase 2 code base (headless Chromium 1194 for end-to-end tests).
+Run on the v1.1.0 code base (headless Chromium 1194 for end-to-end tests).
 
-## Unit / physiology (`npx vitest run`): 75 / 75 passed
+## Unit / physiology (`npx vitest run`): 88 / 88 passed
 
 | File | Tests | Covers |
 |---|---|---|
@@ -10,6 +10,20 @@ Run on the Phase 2 code base (headless Chromium 1194 for end-to-end tests).
 | tests/physiology/rateDependence.test.ts | 4 | Rate → QT and AV-nodal conduction, vagal effects |
 | tests/simulation/engine.test.ts | 12 | Determinism, checkpoint/restore replay, parameter changes only after t, AV-nodal block, escape rhythms, premature activation, refractoriness |
 | tests/ecg/ecg.test.ts | 10 | Forward model and measurement pipeline |
+
+### Added in v1.1.0 (13 tests in tests/physiology/scenarios.test.ts)
+
+| Test | Checks |
+|---|---|
+| scar-related VT | Sustained re-entry at 240–500 ms, monomorphic (axis dispersion < 30°), and **quiet without the burst** — VT must be inducible, not spontaneous |
+| polymorphic VT | Same range, changing QRS (dispersion > 40° and > 20° above the monomorphic scenario), quiet without the burst |
+| ventricular fibrillation | Local activation interval within 2 SD of human VF in vivo (218 ± 24 ms, Nair 2012), dominant frequency 3.5–7 Hz, irregular, > 20 re-entrant waves, quiet without the burst |
+| re-entry cycle length vs refractory floor | Pins CL ≈ erpRatio × apdFloor × APDref to within 20 %, the relationship the VF calibration depends on |
+| calcium hyperca / hypoca | QT shifts 14–40 ms in the right direction with QRS unchanged (≤ 4 ms) |
+| calcium direction vs ionic model | Pins the documented disagreement: TP06 lengthens APD as [Ca²⁺]o rises while the scenario shortens QT |
+| EAD/DAD triggered activity | EADs appear with the published ICaL modification and **not** from IKr block alone; a triggered beat appears with the RyR leak and **not** without it; tissue shows late-coupled ectopy on a prolonged QT |
+| drug dofetilide / quinidine / flecainide / verapamil | QT lengthens (IKr blockers), QRS widens (flecainide), QT shortens (verapamil) |
+| drug block fractions | Hill equation against the published IC50 values |
 | tests/physiology/scenarios.test.ts | 28 | One mechanistic test per validated registry scenario (incl. flutter: regular re-entry, tricuspid obstacle never activated, AV filtering; AF: irregular atrial and ventricular activation, persistence after the PV trigger stops; LBBB ≥ 140 ms) + registry consistency |
 | tests/physiology/ionic.test.ts | 9 | TP06 cell-type behaviour and rate adaptation; each TP06→tissue mapping recomputed from the cell model and its ECG effect checked |
 

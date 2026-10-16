@@ -141,7 +141,7 @@ test.describe("CardioSim Lab", () => {
 
   test("scenario registry: a validated PVC scenario produces an ectopic beat; unsupported ones cannot be loaded", async ({ page }) => {
     await page.click('[data-tab="scenarios"]');
-    await page.click('[data-scenario="vf"]');
+    await page.click('[data-scenario="tdp"]');
     await expect(page.locator('[data-testid="scenario-card"]')).toContainText("not supported yet");
     await expect(page.locator('[data-testid="scenario-load"]')).toHaveCount(0);
     await page.click('[data-scenario="pvc"]');

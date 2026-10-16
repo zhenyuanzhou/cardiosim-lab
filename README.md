@@ -28,7 +28,7 @@ npm run dev          # opens http://localhost:5173
 | `npm run dev` | Development server with hot reload |
 | `npm run build` | Type-check and build a static site in `dist/` (serve with `npm run preview`) |
 | `npm run build:standalone` | Build one self-contained HTML file in `dist-standalone/index.html` |
-| `npm test` | 75 physiology / scenario / ionic / ECG unit tests (Vitest, about 5 min) |
+| `npm test` | 88 physiology / scenario / ionic / ECG unit tests (Vitest, about 5 min) |
 | `npm run test:e2e` | 20 browser tests (Playwright). First time: `npx playwright install chromium` |
 | `npm run validate` | Prints a baseline report: ECG-measured intervals vs model timings vs references |
 

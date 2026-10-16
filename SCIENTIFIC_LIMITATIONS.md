@@ -72,3 +72,55 @@ Local APD90 of a cell is not the surface QT: the QT spans earliest ventricular a
   - A dissociated P wave falling on a QRS can widen the detected QRS.
 - **Delta-wave onset** is detected from the rise of the spatial ECG magnitude above its PR-segment minimum.
 - Values are reported to the resolution of the sampling interval (2 ms at 500 Hz). Model "truth" values are internal activation/recovery times, not ECG readings.
+
+## Ventricular re-entry: what sets the cycle length
+
+This engine spreads activation as discrete events on a graph with refractoriness. It has no
+source–sink mismatch, no wavefront curvature and no electrotonic coupling, and the consequence is
+specific and measurable: **functional re-entry has no excitable gap**, so a rotor's period is just
+the refractory period,
+
+    CL(re-entry) ≈ erpRatio × apdFloor × APDref
+
+Measured across 18 fibrillation runs at reference APDs of 300–380 ms (`scripts/dev/vf-scan2.ts`),
+the ratio CL/APDref was **0.408–0.422** against a predicted 0.414. Three things follow.
+
+- **Fibrillation cycle length is a calibration, not a prediction.** With the default floor the
+  model fibrillates at ≈ 150 ms, far faster than human VF. The VF scenario raises the floor to 0.79
+  so the local activation interval is 220 ms, against 218 ± 24 ms measured in vivo in humans
+  (Nair et al. 2012) and a dominant frequency of 4.5–6.4 Hz (Bradley et al. 2011). The cost is that
+  physiological APD shortening at short diastolic intervals is suppressed.
+- **Anatomical re-entry has to be protected from functional re-entry.** The scar scenarios raise
+  the floor to 0.60 so that faster functional rotors cannot outrun the circuit around the scar.
+- **A premature beat cannot break a wavefront here.** Single-extrastimulus initiation failed in all
+  30 R-on-T combinations tried (coupling 280–400 ms × dispersion 0.15–0.25 × two sites). Every
+  re-entrant scenario therefore needs burst pacing, whereas clinically a single R-on-T beat often
+  suffices.
+
+### Why torsades de pointes is still refused
+
+Torsades was attempted and rejected on evidence, not assumed impossible:
+
+1. **Initiation** — the R-on-T scan above never produced re-entry.
+2. **Morphology** — when re-entry is started with a burst on a long-QT substrate, the beat-to-beat
+   axis rotates with ≈ 53 % directional consistency, i.e. chance. Torsades is defined by a
+   progressively rotating axis, not by random polymorphism.
+3. **Rate and duration** — those rhythms run at 166–200 ms, in the fibrillation range rather than
+   the 240–375 ms of torsades, and are sustained rather than self-terminating.
+
+The ingredients that precede torsades clinically are available (long QT from IKr-blocking drugs or
+hypocalcaemia, dispersed repolarisation, and an EAD-triggered late-coupled beat); what the engine
+cannot do is turn them into the arrhythmia.
+
+### Polymorphic VT versus fibrillation
+
+The model does not draw a sharp line between them. The two scenarios differ in degree of
+organisation and rate — axis dispersion ≈ 61° at ≈ 310 ms for polymorphic VT against ≈ 85° at
+≈ 220 ms for fibrillation — rather than by distinct mechanisms.
+
+### Baseline ECG in the scar scenarios
+
+The slow border zone distorts the tracing before any arrhythmia is induced: in sinus rhythm the
+monomorphic scar substrate gives QRS ≈ 112 ms with QT ≈ 560 ms, and the polymorphic one QRS ≈ 132 ms
+with QT ≈ 506 ms. Some widening is expected after a large infarct, but these are at the extreme end
+and are an artefact of applying one slowing factor to a 6 mm rim of tissue.
