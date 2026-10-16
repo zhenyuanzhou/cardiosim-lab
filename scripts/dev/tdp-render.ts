@@ -5,10 +5,10 @@ import { sanitizeParams, DEFAULT_PARAMS, cloneParams } from "../../src/simulatio
 import { computeLeadField, N_CHANNELS } from "../../src/simulation/ecg-forward/leadField";
 import { writeFileSync } from "node:fs";
 const m = buildCardiacModel(); const W = computeLeadField(m);
-const [ca,d,beats,T0,T1] = [+(process.argv[2]??320), +(process.argv[3]??7), +(process.argv[4]??16), +(process.argv[5]??8000), +(process.argv[6]??14000)];
+const [ca,drift,beats,T0,T1] = [+(process.argv[2]??300), +(process.argv[3]??1), +(process.argv[4]??20), +(process.argv[5]??8000), +(process.argv[6]??16000)];
 const p = cloneParams(DEFAULT_PARAMS);
-p.ventricles.apd=Math.round(300*1.173); p.ventricles.transmuralGradient=Math.round(25*1.173); p.ventricles.apicobasalGradient=Math.round(-30*1.173);
-p.torsades={enabled:true,siteA:"rv-apex",siteB:"lv-anterobasal",cycleA:ca,cycleB:ca+d,beats,every:9,coupling:390};
+const SC=1.08; p.ventricles.apd=Math.round(300*SC); p.ventricles.transmuralGradient=Math.round(25*SC); p.ventricles.apicobasalGradient=Math.round(-30*SC); 
+p.torsades={enabled:true,siteA:"rvot",cycleA:ca,drift,beats,every:9,coupling:390};
 const sim=new Simulator(m,sanitizeParams(p as unknown as Record<string,unknown>),W); sim.run(T1+1000);
 const o=sim.drain();
 const rows=["t,II"];
@@ -24,7 +24,7 @@ for(let k=0;k<merged.length;k++){
   for(let i=a;i<b;i++){const v=o.ecg[i*N_CHANNELS+1]; if(v<lo)lo=v; if(v>hi)hi=v;}
   amps.push(hi-lo);
 }
-console.log(`cycleA=${ca} d=${d} beats=${beats}`);
+console.log(`cycle=${ca} drift=${drift} beats=${beats}`);
 console.log("lead II peak-to-peak per beat (mV):", amps.map(a=>a.toFixed(2)).join(" "));
 const mx=Math.max(...amps), mn=Math.min(...amps);
 console.log(`max/min ratio = ${(mx/mn).toFixed(1)}  (classic torsades: amplitude waxes and wanes, ratio >> 1)`);

@@ -652,34 +652,38 @@ export class Simulator {
   }
 
   /**
-   * Torsades generator. Every `every` conducted beats: the beat before fires one triggered beat
-   * from focus A at the coupling interval (the "short" cycle, followed by a compensatory "long"
-   * pause); on the next conducted beat a run starts at the same coupling, with focus A and focus B
-   * firing at slightly different cycle lengths. Their phase drifts by |cycleA − cycleB| per beat,
-   * so the share of the ventricles each captures — and the QRS axis — shifts progressively.
-   * The run stops after `beats` beats (self-termination).
+   * Torsades generator — a drifting source.
+   *
+   * Every `every` conducted beats: the beat before fires one triggered beat (the "short" cycle,
+   * followed by its compensatory pause); on the next conducted beat a run starts at the same
+   * coupling interval. Within the run the site of origin MIGRATES around the ventricles, one step
+   * per beat along a ring of sites, so each beat is activated from somewhere new. The activation
+   * direction therefore turns progressively, the QRS axis with it, and the amplitude in any one
+   * lead swells and collapses as the axis sweeps through that lead's null — the waxing and waning
+   * that gives torsades its appearance. This is a reduced-order stand-in for a drifting rotor,
+   * which is what the mapping and simulation literature holds responsible for the undulating axis;
+   * the engine cannot produce a true meandering spiral wave.
    */
+  private static readonly TDP_PATH = ["rvot", "lv-anterobasal", "lv-lateral", "lv-inferobasal", "lv-apex", "rv-apex", "septum"] as const;
+
   private torsadesTick(w: WaveInfo, t: number): void {
     const tp = this.params.torsades;
     if (!tp.enabled) return;
     if (w.origin !== "sinus" && w.origin !== "junctional" && w.origin !== "ventricular-escape") return;
-    const a = this.model.ectopicSites[tp.siteA];
-    const b = this.model.ectopicSites[tp.siteB];
-    if (a === undefined || b === undefined) return;
+    const path = Simulator.TDP_PATH.map((id) => this.model.ectopicSites[id]).filter((n) => n !== undefined) as number[];
+    if (path.length < 3) return;
+    const start = Math.max(0, Simulator.TDP_PATH.indexOf(tp.siteA as (typeof Simulator.TDP_PATH)[number]));
     const k = Math.max(3, Math.round(tp.every));
     this.counters.tdp = (this.counters.tdp || 0) + 1;
     const c = this.counters.tdp % k;
     if (c === k - 1) {
-      this.queue.push(t + tp.coupling, a, -6, -1, EV_EXCITE, 0);
+      this.queue.push(t + tp.coupling, path[start % path.length], -6, -1, EV_EXCITE, 0);
     } else if (c === 0) {
-      const start = t + tp.coupling;
-      const dur = Math.max(1, Math.round(tp.beats)) * tp.cycleA;
-      for (let x = start; x < start + dur; x += tp.cycleA) this.queue.push(x, a, -6, -1, EV_EXCITE, 0);
-      // Focus B starts in phase with A and runs slightly slower, so the interval between the two
-      // grows by |cycleB − cycleA| per beat. Early in the run both capture the ventricles together
-      // and the QRS is a fusion of the two; as the offset grows the fusion shifts progressively
-      // towards the earlier focus, which is what rotates the axis.
-      for (let x = start; x < start + dur; x += tp.cycleB) this.queue.push(x, b, -6, -1, EV_EXCITE, 0);
+      const n = Math.max(1, Math.round(tp.beats));
+      for (let b = 0; b < n; b++) {
+        const idx = Math.round(start + b * tp.drift) % path.length;
+        this.queue.push(t + tp.coupling + b * tp.cycleA, path[idx], -6, -1, EV_EXCITE, 0);
+      }
     }
   }
 

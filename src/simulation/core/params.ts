@@ -107,16 +107,19 @@ export interface SimParams {
     antegrade: boolean; // false = concealed (retrograde-only) pathway
   };
   /**
-   * Torsades de pointes generator: on a long-QT substrate, a pause-dependent run of triggered
-   * activity from two competing foci firing at slightly different cycle lengths.
+   * Torsades de pointes generator: on a long-QT substrate, a pause-dependent run whose site of
+   * origin MIGRATES around the ventricles from beat to beat — the reduced-order stand-in for a
+   * drifting rotor, which is what current work holds responsible for the undulating QRS axis.
    */
   torsades: {
     enabled: boolean;
+    /** Where the run starts on the drift path. */
     siteA: EctopicSite;
-    siteB: EctopicSite;
-    cycleA: number; // ms
-    cycleB: number; // ms
-    beats: number; // approximate length of each run (beats of focus A)
+    /** Cycle length of the run (ms). */
+    cycleA: number;
+    /** Sites advanced along the drift path per beat; fractional values advance more slowly. */
+    drift: number;
+    beats: number; // length of each run
     every: number; // sinus beats between runs
     coupling: number; // ms, first triggered beat after the preceding QRS onset (EAD timing)
   };
@@ -213,7 +216,7 @@ export const DEFAULT_PARAMS: SimParams = {
   forward: { limbGain: 2.5, precordialGain: 0.8 },
   rhythm: { sinusArrest: false, saExitBlockEvery: 0 },
   accessory: { site: "none", conductionTime: 15, anteErp: 280, retroErp: 260, antegrade: true },
-  torsades: { enabled: false, siteA: "rv-apex", siteB: "lv-anterobasal", cycleA: 250, cycleB: 270, beats: 16, every: 6, coupling: 390 },
+  torsades: { enabled: false, siteA: "rvot", cycleA: 300, drift: 1, beats: 16, every: 8, coupling: 390 },
   ectopy: { site: "none", pattern: "single", coupling: 450, every: 4, runLength: 3, rate: 150, shot: 0 },
 };
 
@@ -827,13 +830,12 @@ PARAM_META.push(
   sw("hisPurkinje.lpfBlock", "Left posterior fascicular block", "Conduction block", "Left posterior fascicle", "Conduction in the posterior fascicle is abolished.",
     "Inferoposterior LV activated late (expected rightward axis shift)."),
   sw("torsades.enabled", "Torsades generator (two competing triggered foci)", "Triggered activity", "Ventricular myocardium (two triggered foci)",
-    "After a short–long sequence, two triggered foci fire runs at slightly different cycle lengths. Their phase drifts, so the region each one captures — and the QRS axis — shifts progressively from beat to beat.",
-    "A self-terminating polymorphic run with a progressively rotating axis; use on a long-QT substrate.",
-    "Two-foci interpretation from Dessertenne's original description (1966); mapping studies attribute initiation to focal subendocardial triggered activity (Kozhevnikov et al. 2002)."),
-  ch("torsades.siteA", "Torsades focus A", "Triggered activity", ECTOPIC_SITES, "Ventricular myocardium", "First triggered focus; also fires the single beat that creates the pause.", "Sites far apart give the largest axis swing."),
-  ch("torsades.siteB", "Torsades focus B", "Triggered activity", ECTOPIC_SITES, "Ventricular myocardium", "Second triggered focus.", "Sites far apart give the largest axis swing."),
-  num("torsades.cycleA", "Focus A cycle length", "ms", 180, 400, 5, "Triggered activity", "Focus A", "Interval between triggered beats of focus A.", "Sets the rate of the run.", "Nominal; chosen to give the 200–250 /min rate reported clinically."),
-  num("torsades.cycleB", "Focus B cycle length", "ms", 180, 400, 5, "Triggered activity", "Focus B", "Interval between triggered beats of focus B.", "The difference from focus A sets how many beats one full twist takes.", "Nominal."),
+    "After a short–long sequence, a run of triggered beats whose site of origin migrates around the ventricles, one step per beat. Because each beat starts somewhere new, the activation direction — and so the QRS axis — turns progressively, and the amplitude in any one lead swells and collapses as the axis sweeps through that lead's null.",
+    "A self-terminating polymorphic run whose complexes wax and wane; use on a long-QT substrate.",
+    "Reduced-order stand-in for a drifting rotor. Simulation and optical-mapping work attributes the undulating QRS of torsades to drift of a spiral wave (a Doppler effect); see Yamazaki & Jalife-group work reviewed in Front Cardiovasc Med 2024;11:1363848."),
+  ch("torsades.siteA", "Torsades starting site", "Triggered activity", ECTOPIC_SITES, "Ventricular myocardium", "Where on the drift path each run begins.", "Changes which lead sees the largest complexes first."),
+  num("torsades.cycleA", "Run cycle length", "ms", 180, 400, 5, "Triggered activity", "Drifting source", "Interval between beats of the run.", "Sets the rate; 200–250 /min is the reported torsades range.", "Nominal; chosen to give the reported rate."),
+  num("torsades.drift", "Drift per beat", "sites", 0.25, 3, 0.25, "Triggered activity", "Drifting source", "How far the origin moves around the ventricles between beats, in steps along an eight-site path.", "Sets how many beats one full twist takes: one complete turn every (8 / drift) beats.", "Nominal; the path is an idealised ring, not a mapped rotor trajectory."),
   num("torsades.beats", "Run length", "beats", 4, 60, 1, "Triggered activity", "Both foci", "Approximate number of beats in each run before the triggered activity stops.", "Longer → longer episodes; the rhythm self-terminates when the run ends.", "Nominal."),
   num("torsades.every", "Sinus beats between runs", "k", 3, 20, 1, "Triggered activity", "Both foci", "How often the short–long–short sequence and run recur.", "Smaller → more frequent episodes.", "Nominal."),
   num("torsades.coupling", "Triggered coupling interval", "ms", 250, 600, 5, "Triggered activity", "Both foci", "Delay from the preceding QRS onset to the first triggered beat.", "Default 390 ms is the EAD takeoff time measured in the TP06 cell.", "Measured in this implementation of TP06 (scripts/dev/ead-timing.ts)."),
