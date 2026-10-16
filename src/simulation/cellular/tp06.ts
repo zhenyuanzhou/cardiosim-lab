@@ -31,9 +31,25 @@ export interface TP06Mods {
   Ko: number; // mM
   Cao: number; // mM
   Nao: number; // mM
+  /**
+   * Multiplier of the ICaL f-gate time constant τ_f. Vandersickel et al. 2014 (PLoS ONE 9:e84595)
+   * obtain EADs in TP06 by halving τ_f (tauF = 0.5) while doubling g_CaL; with the published τ_f the
+   * model does not produce EADs for plausible conductance changes.
+   */
+  tauF: number;
+  /** SERCA uptake multiplier (Vmax_up) — calcium loading. */
+  vUp: number;
+  /** Na⁺/Ca²⁺ exchanger multiplier (K_NaCa) — converts SR release into inward current (DAD). */
+  kNaCa: number;
+  /**
+   * Background SR Ca²⁺ leak through the RyR (ms⁻¹), added to the TP06 release flux as
+   * V_RyRL·(Ca_SR − Ca_ss). DADs do not appear in TP06 from calcium loading alone; a leak of
+   * 1.8e-4 ms⁻¹ is the value used by Chakraborty et al. (arXiv:2307.10134) for TP06.
+   */
+  vRyRLeak: number;
 }
 
-export const TP06_DEFAULT_MODS: TP06Mods = { gKr: 1, gKs: 1, gNa: 1, gCaL: 1, gK1: 1, gto: 1, Ko: 5.4, Cao: 2, Nao: 140 };
+export const TP06_DEFAULT_MODS: TP06Mods = { gKr: 1, gKs: 1, gNa: 1, gCaL: 1, gK1: 1, gto: 1, Ko: 5.4, Cao: 2, Nao: 140, tauF: 1, vUp: 1, kNaCa: 1, vRyRLeak: 0 };
 
 const C = {
   P_kna: 0.03,
@@ -154,19 +170,20 @@ export class TP06 {
     // pumps / exchangers
     const iNaK = (C.P_NaK * Ko * Nai) / ((Ko + C.K_mk) * (Nai + C.K_mNa) * (1 + 0.1245 * Math.exp((-0.1 * v) / RTF) + 0.0353 * Math.exp(-v / RTF)));
     const iNaCa =
-      (C.K_NaCa * (Math.exp((C.gamma * v) / RTF) * Nai ** 3 * Cao - Math.exp(((C.gamma - 1) * v) / RTF) * Nao ** 3 * Cai * C.alpha)) /
+      (C.K_NaCa * md.kNaCa * (Math.exp((C.gamma * v) / RTF) * Nai ** 3 * Cao - Math.exp(((C.gamma - 1) * v) / RTF) * Nao ** 3 * Cai * C.alpha)) /
       ((C.Km_Nai ** 3 + Nao ** 3) * (C.Km_Ca + Cao) * (1 + C.K_sat * Math.exp(((C.gamma - 1) * v) / RTF)));
     const ipCa = (C.g_pCa * Cai) / (Cai + C.K_pCa);
     const ipK = (C.g_pK * (v - E_K)) / (1 + 65.4052157419 * Math.exp(-0.167224080268 * v));
     // calcium handling
-    const iup = C.Vmax_up / (1 + (C.K_up * C.K_up) / (Cai * Cai));
+    const iup = (C.Vmax_up * md.vUp) / (1 + (C.K_up * C.K_up) / (Cai * Cai));
     const ileak = C.V_leak * (CaSR - Cai);
     const ixfer = C.V_xfer * (Cass - Cai);
     const kcasr = C.max_sr - (C.max_sr - C.min_sr) / (1 + (C.EC / CaSR) ** 2);
     const k1 = C.k1_prime / kcasr;
     const k2 = C.k2_prime * kcasr;
     const O = (k1 * Cass * Cass * y[RP]) / (C.k3 + k1 * Cass * Cass);
-    const irel = C.V_rel * O * (CaSR - Cass);
+    // V_rel·O·(CaSR − Cass) plus an optional voltage-independent RyR leak (DAD substrate)
+    const irel = (C.V_rel * O + md.vRyRLeak) * (CaSR - Cass);
     const bufc = 1 / (1 + (C.Buf_c * C.K_buf_c) / (Cai + C.K_buf_c) ** 2);
     const bufsr = 1 / (1 + (C.Buf_sr * C.K_buf_sr) / (CaSR + C.K_buf_sr) ** 2);
     const bufss = 1 / (1 + (C.Buf_ss * C.K_buf_ss) / (Cass + C.K_buf_ss) ** 2);
@@ -238,7 +255,7 @@ export class TP06 {
       const gd = 1 / (1 + Math.exp((50 - v) / 20));
       rl(D, dinf, ad * bd + gd);
       const finf = 1 / (1 + Math.exp((v + 20) / 7));
-      const tf = 1102.5 * Math.exp(-((v + 27) ** 2) / 225) + 200 / (1 + Math.exp((13 - v) / 10)) + 180 / (1 + Math.exp((v + 30) / 10)) + 20;
+      const tf = (1102.5 * Math.exp(-((v + 27) ** 2) / 225) + 200 / (1 + Math.exp((13 - v) / 10)) + 180 / (1 + Math.exp((v + 30) / 10)) + 20) * md.tauF;
       rl(F, finf, tf);
       const f2inf = 0.67 / (1 + Math.exp((v + 35) / 7)) + 0.33;
       const tf2 = 562 * Math.exp(-((v + 27) ** 2) / 240) + 31 / (1 + Math.exp((25 - v) / 10)) + 80 / (1 + Math.exp((v + 30) / 10));
@@ -274,6 +291,12 @@ export interface PacedResult {
   dvdtMax: number;
   /** Early afterdepolarisation detected in the last beat (secondary depolarisation during repolarisation). */
   ead: boolean;
+  /** Number of distinct EAD upstrokes in the last beat. */
+  eadCount: number;
+  /** Largest delayed afterdepolarisation (mV above the diastolic baseline) after full repolarisation. */
+  dadAmplitude: number;
+  /** A DAD reached threshold and produced a spontaneous (non-driven) upstroke. */
+  triggeredBeat: boolean;
   /** 1:1 response (every stimulus elicited an AP) in the last 3 beats. */
   captured: boolean;
   /** Na⁺ availability at rest (h·j) — used for CV scaling. */
@@ -312,10 +335,21 @@ export function pace(cell: TP06Cell, mods: TP06Mods, cl = 1000, beats = 20, dt =
     }
     if (b >= beats - 3 && peak < 0) captured = false;
     if (last) {
-      const vP = Math.max(...v);
-      const thr = vP - 0.9 * (vP - vRest);
+      // Peak of the DRIVEN action potential: search only the first 100 ms after the stimulus, so a
+      // later triggered (DAD-induced) upstroke in the same cycle cannot be mistaken for it.
+      const iPkLimit = Math.min(v.length, Math.round(100 / sampleDt));
       let iPk = 0;
-      for (let i = 0; i < v.length; i++) if (v[i] === vP) iPk = i;
+      let vP = -Infinity;
+      for (let i = 0; i < iPkLimit; i++)
+        if (v[i] > vP) {
+          vP = v[i];
+          iPk = i;
+        }
+      // An action potential must overshoot; if the driven upstroke did not, APD90 is undefined for
+      // this beat (this happens under heavy calcium load, when the stimulus lands inside a
+      // triggered beat's refractory period).
+      const driven = vP > 0;
+      const thr = vP - 0.9 * (vP - vRest);
       let apdEnd = -1;
       for (let i = iPk; i < v.length; i++)
         if (v[i] < thr) {
@@ -323,16 +357,48 @@ export function pace(cell: TP06Cell, mods: TP06Mods, cl = 1000, beats = 20, dt =
           break;
         }
       // EAD: after the plateau started falling, a rise of > 2 mV while V > −60 mV
-      let ead = false;
+      let eadCount = 0;
       let vmin = Infinity;
+      let rising = false;
       for (let i = iPk + 20; i < (apdEnd > 0 ? apdEnd : v.length); i++) {
-        if (v[i] < vmin) vmin = v[i];
-        if (v[i] > vmin + 2 && v[i] > -60 && vmin < 10) {
-          ead = true;
-          break;
+        if (v[i] < vmin) {
+          vmin = v[i];
+          rising = false;
+        }
+        if (!rising && v[i] > vmin + 2 && v[i] > -60 && vmin < 10) {
+          eadCount++;
+          rising = true;
         }
       }
-      return { cell, cl, v, sampleDt, apd90: apdEnd > 0 ? apdEnd * sampleDt : NaN, vRest, vPeak: vP, dvdtMax, ead, captured, naAvailability: naAvail };
+      // DAD: after full repolarisation, a depolarising hump above the diastolic baseline.
+      // A hump that reaches the Na⁺ activation range and is followed by a fast upstroke is a
+      // triggered beat (non-driven action potential).
+      let dadAmplitude = 0;
+      let triggeredBeat = false;
+      if (apdEnd > 0 && apdEnd + 20 < v.length) {
+        let base = Infinity;
+        for (let i = apdEnd + 10; i < v.length; i++) base = Math.min(base, v[i]);
+        for (let i = apdEnd + 10; i < v.length; i++) {
+          dadAmplitude = Math.max(dadAmplitude, v[i] - base);
+          if (v[i] > -40) triggeredBeat = true;
+        }
+      }
+      return {
+        cell,
+        cl,
+        v,
+        sampleDt,
+        apd90: driven && apdEnd > 0 ? apdEnd * sampleDt : NaN,
+        vRest,
+        vPeak: vP,
+        dvdtMax,
+        ead: eadCount > 0,
+        eadCount,
+        dadAmplitude,
+        triggeredBeat,
+        captured,
+        naAvailability: naAvail,
+      };
     }
   }
   throw new Error("unreachable");

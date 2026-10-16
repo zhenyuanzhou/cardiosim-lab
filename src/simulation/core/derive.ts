@@ -5,6 +5,7 @@
 import { CT, EK, type CardiacModel } from "./model";
 import type { RetroMode, SimParams } from "./params";
 import { NODAL, apdInfFromRef } from "../cellular/actionPotential";
+import { calciumApdShift } from "../cellular/electrolytes";
 import { Rng } from "./rng";
 
 /** Nominal autonomic sensitivity coefficients (NOT data-derived; see params metadata). */
@@ -216,12 +217,17 @@ export function derive(model: CardiacModel, p: SimParams): Derived {
     }
   }
   smoothVentricularApd(model, apdRef, v.electrotonicSmoothing);
+  // Serum calcium: additive shift from the measured human QT–calcium slope (see electrolytes.ts).
+  // Applied after smoothing because it is a uniform offset, not a spatial gradient.
+  const caShift = calciumApdShift(p.electrolytes.serumCalcium);
+  if (caShift !== 0) for (let i = 0; i < n; i++) if (model.cellType[i] === CT.VENTRICULAR) apdRef[i] = Math.max(60, apdRef[i] + caShift);
   // substrate-specific repolarisation
   for (let i = 0; i < n; i++) {
     if (sub.cti[i]) apdRef[i] *= p.atria.ctiApdFactor;
     if (sub.isthmus[i] || sub.border[i]) apdRef[i] *= p.ventricles.isthmusApdFactor;
   }
-  if (p.atria.heterogeneity > 0) applyAtrialHeterogeneity(model, apdRef, p.atria.heterogeneity, p.seed);
+  if (p.atria.heterogeneity > 0) applyAtrialHeterogeneity(model, apdRef, p.atria.heterogeneity, p.seed, CT.ATRIAL);
+  if (v.heterogeneity > 0) applyAtrialHeterogeneity(model, apdRef, v.heterogeneity, p.seed ^ 0x5bf03635, CT.VENTRICULAR);
   const apdInf = new Float32Array(n);
   for (let i = 0; i < n; i++) apdInf[i] = apdInfFromRef(apdRef[i]);
 
@@ -288,23 +294,25 @@ function smoothVentricularApd(model: CardiacModel, apd: Float32Array, sigma: num
 }
 
 /**
- * Spatially smoothed, seeded random dispersion of atrial APD (relative SD = h). Smoothing over atrial
- * neighbours gives a correlation length of a few millimetres; the field is re-normalised to SD = h.
+ * Spatially smoothed, seeded random dispersion of APD within one cell type (relative SD = h).
+ * Smoothing over neighbours of the same type gives a correlation length of a few millimetres;
+ * the field is re-normalised to SD = h. Used for the atria (AF substrate) and, with a different
+ * seed, for the ventricles (polymorphic VT / VF substrate).
  */
-function applyAtrialHeterogeneity(model: CardiacModel, apd: Float32Array, h: number, seed: number): void {
+function applyAtrialHeterogeneity(model: CardiacModel, apd: Float32Array, h: number, seed: number, type: number): void {
   const n = model.n;
   const rng = new Rng((seed * 2654435761) >>> 0 || 7);
   let z = new Float32Array(n);
-  for (let i = 0; i < n; i++) if (model.cellType[i] === CT.ATRIAL) z[i] = rng.next() * 2 - 1;
+  for (let i = 0; i < n; i++) if (model.cellType[i] === type) z[i] = rng.next() * 2 - 1;
   for (let pass = 0; pass < 3; pass++) {
     const nz = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      if (model.cellType[i] !== CT.ATRIAL) continue;
+      if (model.cellType[i] !== type) continue;
       let s = z[i];
       let c = 1;
       for (let q = model.adjStart[i]; q < model.adjStart[i + 1]; q++) {
         const j = model.adjNode[q];
-        if (model.cellType[j] !== CT.ATRIAL) continue;
+        if (model.cellType[j] !== type) continue;
         s += z[j];
         c++;
       }
@@ -313,8 +321,8 @@ function applyAtrialHeterogeneity(model: CardiacModel, apd: Float32Array, h: num
     z = nz;
   }
   let m = 0, m2 = 0, k = 0;
-  for (let i = 0; i < n; i++) if (model.cellType[i] === CT.ATRIAL) { m += z[i]; m2 += z[i] * z[i]; k++; }
+  for (let i = 0; i < n; i++) if (model.cellType[i] === type) { m += z[i]; m2 += z[i] * z[i]; k++; }
   m /= k;
   const sd = Math.sqrt(Math.max(1e-9, m2 / k - m * m));
-  for (let i = 0; i < n; i++) if (model.cellType[i] === CT.ATRIAL) apd[i] *= Math.max(0.4, 1 + (h * (z[i] - m)) / sd);
+  for (let i = 0; i < n; i++) if (model.cellType[i] === type) apd[i] *= Math.max(0.4, 1 + (h * (z[i] - m)) / sd);
 }

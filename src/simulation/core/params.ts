@@ -77,6 +77,12 @@ export interface SimParams {
     isthmusCvFactor: number;
     isthmusApdFactor: number;
     borderCvFactor: number;
+    /** Relative SD of the ventricular APD map (seeded, spatially smoothed) — repolarisation dispersion. */
+    heterogeneity: number;
+  };
+  electrolytes: {
+    /** Total serum calcium (mmol/L); acts on ventricular APD through a measured human QT slope. */
+    serumCalcium: number;
   };
   restitution: {
     cvAmplitude: number; // fractional CV reduction at DI -> 0
@@ -184,7 +190,9 @@ export const DEFAULT_PARAMS: SimParams = {
     isthmusCvFactor: 0.2,
     isthmusApdFactor: 1.15,
     borderCvFactor: 0.5,
+    heterogeneity: 0,
   },
+  electrolytes: { serumCalcium: 2.4 },
   restitution: { cvAmplitude: 0.5, cvTau: 30 },
   forward: { limbGain: 2.5, precordialGain: 0.8 },
   rhythm: { sinusArrest: false, saExitBlockEvery: 0 },
@@ -764,6 +772,14 @@ PARAM_META.push(
   num("ventricles.isthmusCvFactor", "Isthmus CV factor", "×", 0.05, 1, 0.01, "Ventricular electrophysiology", "Scar isthmus", "CV multiplier in the isthmus.", "Lower → slower VT.", "Nominal."),
   num("ventricles.borderCvFactor", "Scar border-zone CV factor", "×", 0.1, 1, 0.01, "Ventricular electrophysiology", "Scar border zone (7 mm rim)", "CV multiplier in the rim of surviving myocardium around the scar.", "Lower → slower re-entry around the scar.", "Nominal."),
   num("ventricles.isthmusApdFactor", "Isthmus APD factor", "×", 0.8, 2, 0.01, "Ventricular electrophysiology", "Scar isthmus (border zone)", "APD multiplier in the isthmus and border zone.", "Longer → unidirectional block of premature beats more likely.", "Nominal."),
+  num("ventricles.heterogeneity", "Ventricular repolarisation dispersion", "SD", 0, 0.5, 0.01, "Ventricular electrophysiology", "Ventricular myocardium",
+    "Relative spatial dispersion of ventricular APD (seeded, smoothed over ≈ 5 mm), on top of the transmural and apicobasal gradients.",
+    "Higher → local block and wave break during rapid or premature activation; the substrate for polymorphic VT and fibrillatory conduction.",
+    "Nominal magnitude; the spatial pattern is a smoothed random field, not patient anatomy."),
+  num("electrolytes.serumCalcium", "Serum calcium (total)", "mmol/L", 1.4, 3.6, 0.05, "Electrolytes", "Ventricular myocardium (repolarisation)",
+    "Shifts ventricular APD by 30.1 ms per mmol/L fall in total serum calcium — the human QT–calcium slope from Mendelian randomisation in UK Biobank (Young et al. 2021, n = 76 226). The ionic cell model is NOT used here because TP06 reproduces the opposite direction.",
+    "Lower calcium → longer QT with unchanged QRS; higher calcium → shorter QT.",
+    "Measured human slope: +3.01 ms QT (95% CI 2.03–3.99) per 0.1 mmol/L fall in total serum calcium (doi:10.1161/CIRCGEN.120.003231). Linear and measured near the reference range, so values far outside it are extrapolation."),
   num("avNode.concealment", "Concealed antegrade conduction", "0–1", 0, 1, 0.05, "AV nodal function", "AV node",
     "Blocked antegrade impulses that arrive late in the refractory period (R ≥ 0.6·ERP) still penetrate the node and push its recovery reference forward by a fraction of the elapsed time (0 = off).",
     "With rapid irregular atrial input (AF) this makes ventricular conduction irregular; it also lengthens the effective nodal refractoriness.",

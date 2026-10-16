@@ -9,6 +9,16 @@ import { run, median } from "../helpers/sim";
 import type { WaveInfo } from "../../src/simulation/core/engine";
 import { RG } from "../../src/simulation/core/model";
 import { model } from "../helpers/sim";
+import { pace, TP06_DEFAULT_MODS, type TP06Mods } from "../../src/simulation/cellular/tp06";
+import { DRUG_BY_ID, drugMods } from "../../src/simulation/cellular/drugs";
+
+const cellCache = new Map<string, ReturnType<typeof pace>>();
+/** Pace one epicardial TP06 cell with the given modifications (cached across tests). */
+function paceCell(mods: Partial<TP06Mods>, cl = 1000, beats = 30) {
+  const key = JSON.stringify([mods, cl, beats]);
+  if (!cellCache.has(key)) cellCache.set(key, pace("epi", { ...TP06_DEFAULT_MODS, ...mods }, cl, beats));
+  return cellCache.get(key)!;
+}
 
 const cache = new Map<string, ReturnType<typeof run>>();
 function sc(id: string, ms = 8000) {
@@ -279,6 +289,82 @@ describe("Bundle branch block", () => {
     expect(model.region[l.lastVentNode]).toBe(RG.LV);
     // detector-measured QRS meets the conventional LBBB width criterion (≥ 140 ms, Strauss et al. 2011)
     expect(median(sc("lbbb").beats.map((b) => b.qrs))).toBeGreaterThanOrEqual(140);
+  });
+});
+
+describe("Group E — electrolytes, triggered activity and drugs", () => {
+  const qt = (id: string) => median(sc(id).beats.map((b) => b.qt).filter((x): x is number => x !== null));
+  const qrs = (id: string) => median(sc(id).beats.map((b) => b.qrs).filter((x): x is number => x !== null));
+
+  it("calcium hyperca", () => {
+    // Serum Ca 2.4 → 3.2 mmol/L: QT shortens by the measured human slope (30.1 ms per mmol/L),
+    // i.e. ≈ 24 ms, and QRS is unchanged (Young et al. 2021 found no calcium–QRS association).
+    const d = qt("nsr") - qt("hyperca");
+    expect(d).toBeGreaterThan(14);
+    expect(d).toBeLessThan(40);
+    expect(Math.abs(qrs("hyperca") - qrs("nsr"))).toBeLessThanOrEqual(4);
+  });
+
+  it("calcium hypoca", () => {
+    const d = qt("hypoca") - qt("nsr");
+    expect(d).toBeGreaterThan(14);
+    expect(d).toBeLessThan(40);
+    expect(Math.abs(qrs("hypoca") - qrs("nsr"))).toBeLessThanOrEqual(4);
+  });
+
+  it("calcium direction is opposite to the ionic cell model (documented disagreement)", () => {
+    // The scenarios must NOT be derived from TP06: in TP06 raising [Ca]o lengthens the AP.
+    // This test pins that disagreement so the limitation cannot silently disappear.
+    const lo = paceCell({ Cao: 1.0 });
+    const hi = paceCell({ Cao: 3.0 });
+    expect(hi.apd90).toBeGreaterThan(lo.apd90); // TP06: higher Ca → LONGER APD
+    expect(qt("hyperca")).toBeLessThan(qt("nsr")); // scenario: higher Ca → SHORTER QT
+  });
+
+  it("EAD/DAD triggered activity", () => {
+    // Cell: the published EAD configuration produces a secondary upstroke; IKr block alone does not.
+    const ead = paceCell({ tauF: 0.5, gCaL: 2.5, gKs: 0.2 });
+    expect(ead.eadCount).toBeGreaterThan(0);
+    expect(paceCell({ gKr: 0 }).eadCount).toBe(0);
+    // Cell: calcium overload with an RyR leak gives a full triggered beat; without the leak it does not.
+    const dad = paceCell({ gCaL: 2, vUp: 4.5, kNaCa: 2.5, vRyRLeak: 0.00018 }, 600, 30);
+    expect(dad.triggeredBeat).toBe(true);
+    expect(paceCell({ gCaL: 2, vUp: 4.5, kNaCa: 2.5 }, 600, 30).triggeredBeat).toBe(false);
+    // Tissue: late-coupled ectopic beats on a prolonged QT, alternating with sinus beats.
+    const v = vent(sc("ead-dad").waves).filter((w) => w.t0 > 1500);
+    const ect = v.filter((w) => w.origin === "ectopic");
+    expect(ect.length).toBeGreaterThan(3);
+    expect(qt("ead-dad")).toBeGreaterThan(qt("nsr") + 30);
+  });
+
+  it("drug dofetilide", () => {
+    // Selective IKr block: QT lengthens, QRS unchanged.
+    expect(qt("drug-dofetilide")).toBeGreaterThan(qt("nsr") + 25);
+    expect(Math.abs(qrs("drug-dofetilide") - qrs("nsr"))).toBeLessThanOrEqual(4);
+  });
+
+  it("drug quinidine", () => {
+    expect(qt("drug-quinidine")).toBeGreaterThan(qt("nsr") + 20);
+  });
+
+  it("drug flecainide", () => {
+    // Class Ic: QRS widens through reduced conduction velocity.
+    expect(qrs("drug-flecainide")).toBeGreaterThan(qrs("nsr") + 4);
+  });
+
+  it("drug verapamil", () => {
+    // Balanced ICaL block outweighs hERG block: QT SHORTENS despite appreciable IKr affinity.
+    expect(qt("drug-verapamil")).toBeLessThan(qt("nsr") - 40);
+    expect(Math.abs(qrs("drug-verapamil") - qrs("nsr"))).toBeLessThanOrEqual(4);
+  });
+
+  it("drug block fractions match the published IC50 values", () => {
+    // Hill equation, h = 1, at the stated multiple of free Cmax (Crumb et al. 2016 Table 1 and 2).
+    const dof = drugMods(DRUG_BY_ID.dofetilide, 1);
+    expect(dof.gKr).toBeCloseTo(1 - 2.1 / (2.1 + 2), 6); // IC50 0.002 µM = 2 nM, free Cmax 2.1 nM → ≈ 51 % block
+    expect(dof.gCaL).toBe(1); // above the highest concentration tested → no block
+    const ver = drugMods(DRUG_BY_ID.verapamil, 1);
+    expect(1 - ver.gCaL).toBeGreaterThan(1 - ver.gKr); // ICaL block exceeds IKr block
   });
 });
 

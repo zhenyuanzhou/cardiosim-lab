@@ -15,6 +15,8 @@
  * stored anywhere. `apply` always starts from DEFAULT_PARAMS so scenarios are reproducible.
  */
 import { DEFAULT_PARAMS, cloneParams, type SimParams } from "../core/params";
+import { CALCIUM_REFERENCE, calciumApdShift } from "../cellular/electrolytes";
+import { DRUG_BY_ID, drugMods } from "../cellular/drugs";
 
 export type ScenarioStatus = "validated" | "incomplete" | "partial" | "placeholder" | "unsupported";
 export type ModelClass = "mechanistic" | "reduced-order" | "illustration" | "none";
@@ -60,6 +62,15 @@ const P = (f?: (p: SimParams) => void) => () => {
   return p;
 };
 const T = (name: string) => `Automated test: "${name}" (tests/physiology/scenarios.test.ts).`;
+
+/**
+ * Coupling interval of an EAD-triggered beat (ms after the action-potential upstroke), measured in
+ * this implementation of TP06 with the Vandersickel 2014 EAD configuration at CL 1000 ms
+ * (scripts/dev/ead-timing.ts: secondary takeoff at 393 ms from −9 mV). The DAD-triggered upstroke
+ * under calcium overload with an RyR leak was measured at 403 ms at CL 600 ms.
+ */
+export const EAD_COUPLING = 390;
+export const DAD_COUPLING = 403;
 
 const unsupported = (id: string, name: string, group: Scenario["group"], needs: string): Scenario => ({
   id,
@@ -118,6 +129,97 @@ function ionic(id: string, name: string, change: string, key: string, mechanism:
       p.ventricles.transmuralGradient = Math.round(p.ventricles.transmuralGradient * m.apdScale);
       p.ventricles.apicobasalGradient = Math.round(p.ventricles.apicobasalGradient * m.apdScale);
       p.ventricles.cvLongitudinal = +(p.ventricles.cvLongitudinal * m.cvScale).toFixed(3);
+    }),
+  };
+}
+
+/**
+ * Calcium disorders. These deliberately do NOT come from the ionic cell model: TP06 reproduces the
+ * opposite direction of the APD–[Ca²⁺]o relationship (measured in this implementation and shown in
+ * the Ionic cell tab). The tissue effect is the measured human QT–calcium slope instead.
+ */
+function calcium(id: string, name: string, serum: number, dir: "shortens" | "prolongs"): Scenario {
+  const shift = calciumApdShift(serum);
+  const dq = Math.abs(shift).toFixed(0);
+  return {
+    id,
+    name: `${name} (serum Ca²⁺ ${serum.toFixed(1)} mmol/L)`,
+    group: "E · Ionic/drug",
+    // "partial", not "validated": the ECG effect is calibrated and tested, but the mechanism is
+    // imposed from human measurements rather than simulated from the ionic currents.
+    status: "partial",
+    modelClass: "reduced-order",
+    criteria: { ...ALL, mechanism: false },
+    mechanism:
+      `Extracellular Ca²⁺ changes the calcium-dependent inactivation of the L-type Ca²⁺ current and so the duration of the plateau: higher calcium ${dir === "shortens" ? "speeds inactivation and shortens" : "slows inactivation and lengthens"} ` +
+      `the action potential. The ionic cell model is not used for this scenario — TP06 (like ORd and Grandi) predicts the opposite direction (Bartolucci, Passini & Severi 2020), so the size and sign of the tissue effect are taken from human measurements.`,
+    structures: "Ventricular myocardium (repolarisation).",
+    changes: `Serum total calcium ${CALCIUM_REFERENCE.toFixed(1)} → ${serum.toFixed(1)} mmol/L; ventricular APD shifted by ${shift > 0 ? "+" : ""}${shift.toFixed(0)} ms (30.1 ms per mmol/L, Young et al. 2021).`,
+    activation: "Activation sequence and conduction velocity unchanged — calcium acts on repolarisation only.",
+    ecg: `QT ${dir} by about ${dq} ms with an unchanged QRS; the ST segment ${dir === "shortens" ? "shortens so the T wave follows the QRS closely" : "lengthens, separating the T wave from the QRS"}.`,
+    initiation: "Immediate.",
+    limitations:
+      `The slope is linear and was measured in populations whose calcium lies in or near the reference range (Mendelian randomisation, UK Biobank, n = 76 226: 3.01 ms per 0.1 mmol/L, 95% CI 2.03–3.99). Applying it at ${serum.toFixed(1)} mmol/L is extrapolation, and the true change is probably larger: the equivalent slope measured against *ionised* calcium in haemodialysis patients is about threefold steeper (8.55 ms per 0.1 mmol/L). ` +
+      `T-wave shape changes and the tall peaked T of severe hypercalcaemia are not reproduced, because the tissue action-potential shape is fixed. No arrhythmia arises from calcium alone in this model.`,
+    validation: T(`calcium ${id}`),
+    leads: ["II", "V2", "V5"],
+    apply: P((p) => (p.electrolytes.serumCalcium = serum)),
+  };
+}
+
+/**
+ * Drug scenarios. Channel block comes from the measured IC50 values in drugs.ts; the resulting
+ * TP06 conductance multipliers were paced through the same epi/M/endo protocol as TP06_MAPPED and
+ * the tissue APD/CV scalings recorded here (scripts/dev/drug-scan.ts, rechecked by
+ * tests/physiology/ionic.test.ts, which recomputes them from the cell model).
+ */
+export const DRUG_MAPPED: Record<string, { xCmax: number; apdScale: number; cvScale: number }> = {
+  dofetilide: { xCmax: 4, apdScale: 1.151, cvScale: 1.0 },
+  quinidine: { xCmax: 1, apdScale: 1.134, cvScale: 1.0 },
+  flecainide: { xCmax: 4, apdScale: 1.155, cvScale: 0.885 },
+  verapamil: { xCmax: 4, apdScale: 0.73, cvScale: 1.014 },
+};
+
+function drug(id: string, drugId: string, xCmax: number, kind: "ikr-dominant" | "na-dominant" | "cal-dominant"): Scenario {
+  const d = DRUG_BY_ID[drugId];
+  const map = DRUG_MAPPED[drugId];
+  const mods = drugMods(d, xCmax);
+  const pct = (g: number) => `${Math.round((1 - g) * 100)} %`;
+  const qt = kind === "cal-dominant" ? "shortens" : "lengthens";
+  const ecg =
+    kind === "na-dominant"
+      ? `QRS widens (ventricular CV × ${map.cvScale}) and QT ${qt}; the QT change is partly the wider QRS.`
+      : kind === "cal-dominant"
+        ? `QT ${qt} markedly (APD × ${map.apdScale}) with an unchanged QRS.`
+        : `QT ${qt} (APD × ${map.apdScale}) with an unchanged QRS — the long-QT pattern of IKr blockade.`;
+  return {
+    id,
+    name: `${d.name} ${xCmax}× free Cmax`,
+    group: "E · Ionic/drug",
+    status: "partial",
+    modelClass: "reduced-order",
+    criteria: { ...ALL, mechanism: false },
+    mechanism:
+      `At ${(d.freeCmax * xCmax).toFixed(1)} nM — ${xCmax}× the free therapeutic plasma concentration — ${d.name.toLowerCase()} blocks IKr by ${pct(mods.gKr)}, ICaL by ${pct(mods.gCaL)} and peak INa by ${pct(mods.gNa)}. ` +
+      `Block is computed from the measured IC50 values of the CiPA ion-channel panel (Crumb et al. 2016) with the Hill equation at a Hill coefficient of 1, applied to the TP06 cell, and the resulting APD and upstroke changes are mapped onto the tissue. ${d.note}`,
+    structures: "Ventricular myocytes (ionic model) → ventricular tissue (reduced-order).",
+    changes: `IKr × ${mods.gKr.toFixed(2)}, ICaL × ${mods.gCaL.toFixed(2)}, INa × ${mods.gNa.toFixed(2)} in TP06; tissue APD × ${map.apdScale}, ventricular CV × ${map.cvScale}.`,
+    activation: map.cvScale < 0.95 ? "Slower ventricular activation — the activation sequence is unchanged but takes longer." : "Activation sequence and timing unchanged.",
+    ecg,
+    initiation: "Immediate.",
+    limitations:
+      `Partial: block is treated as a fixed reduction in conductance. Use-dependence (rate-dependent block, prominent for ${d.name.toLowerCase() === "flecainide" ? "flecainide" : "sodium-channel blockers"}), state-dependent binding, trapping and metabolite activity are not modelled, and TP06 has no late sodium current. ` +
+      `The torsade risk category shown (${d.tdpRisk}) is clinical knowledge, not a model output: this model cannot predict whether a given drug causes torsades, only how the measured channel block changes repolarisation and conduction. ` +
+      (kind === "cal-dominant"
+        ? "Note that the shortening here illustrates why hERG affinity alone is a poor predictor of risk — balanced ICaL block offsets it."
+        : "Arrhythmia does not arise spontaneously from the drug in this model; combine it with the triggered-activity or polymorphic-VT scenarios to see the consequence."),
+    validation: T(`drug ${drugId}`),
+    leads: ["II", "V2", "V5"],
+    apply: P((p) => {
+      p.ventricles.apd = Math.round(p.ventricles.apd * map.apdScale);
+      p.ventricles.transmuralGradient = Math.round(p.ventricles.transmuralGradient * map.apdScale);
+      p.ventricles.apicobasalGradient = Math.round(p.ventricles.apicobasalGradient * map.apdScale);
+      p.ventricles.cvLongitudinal = +(p.ventricles.cvLongitudinal * map.cvScale).toFixed(3);
     }),
   };
 }
@@ -674,10 +776,38 @@ export const SCENARIOS: Scenario[] = [
   ionic("ca-block", "L-type Ca²⁺-channel blockade (ICaL −50 %)", "gCaL × 0.5", "cal50",
     "Reduced plateau current shortens the ventricular APD.",
     "Shorter QT.", "The dominant clinical effect (AV-nodal slowing) is not modelled because the AV node is a lumped link without ionic currents."),
-  unsupported("hyperca", "Hypercalcaemia", "E · Ionic/drug", "a cell model whose APD shortens with raised [Ca²⁺]o. TP06 predicts the opposite direction (longer APD), contradicting the clinical QT–calcium relationship, so the result would be misleading."),
-  unsupported("hypoca", "Hypocalcaemia", "E · Ionic/drug", "as for hypercalcaemia (TP06 shortens rather than prolongs APD at low [Ca²⁺]o)."),
-  unsupported("ead-dad", "EAD / DAD triggered activity", "E · Ionic/drug", "an EAD-capable cell model coupled to tissue. TP06 produced no EADs for IKr 0–10 %, ICaL ×1.5–2, IKs ×0.5 at CL 2000 ms (scripts/dev), and tissue coupling of ionic models is not implemented."),
-  unsupported("drug-arrhythmia", "Selected drug-induced arrhythmias", "E · Ionic/drug", "validated drug-channel block parameters and an ionic tissue model."),
+  calcium("hyperca", "Hypercalcaemia", 3.2, "shortens"),
+  calcium("hypoca", "Hypocalcaemia", 1.6, "prolongs"),
+  {
+    id: "ead-dad",
+    name: "EAD / DAD triggered activity",
+    group: "E · Ionic/drug",
+    status: "partial",
+    modelClass: "reduced-order",
+    criteria: { ...ALL, mechanism: false },
+    mechanism:
+      "Triggered activity: a second upstroke arising from the preceding action potential rather than from a pacemaker. An early afterdepolarisation (EAD) takes off during phase 3, from the reactivation of the L-type Ca²⁺ window current when repolarisation is slow; a delayed afterdepolarisation (DAD) takes off after full repolarisation, when spontaneous SR Ca²⁺ release drives inward Na⁺/Ca²⁺ exchange current. Both are reproduced in the single cell (Ionic cell tab); the tissue model receives the resulting beat at the coupling interval measured there.",
+    structures: "Ventricular myocyte (ionic model) → ventricular tissue; triggered beats arise in the LV lateral wall.",
+    changes:
+      "Long-QT tissue substrate (ventricular APD × 1.17, the mapped effect of 90 % IKr block) plus triggered beats every 2nd sinus beat at a coupling interval of 390 ms — the EAD takeoff time measured in the cell (τ_f × 0.5, ICaL × 2.5, IKs × 0.2 at CL 1000 ms).",
+    activation: "Sinus activation, then a late-coupled ectopic activation spreading cell-to-cell from the LV lateral wall while repolarisation is still incomplete.",
+    ecg: "Prolonged QT with late-coupled wide ectopic beats falling on the T wave (R-on-T), in a bigeminal pattern.",
+    initiation: "Immediate. The DAD variant (a triggered beat 403 ms after the upstroke, from calcium overload with an RyR leak) can be produced in the Ionic cell tab and applied with the same ectopy controls.",
+    limitations:
+      "Partial by construction. The afterdepolarisations themselves exist only in the single-cell model — the tissue receives their *timing* as an ectopic stimulus, it does not generate them, because the ionic model is not coupled cell-to-cell. Neither does the surface ECG show the afterdepolarisation itself. In addition, TP06 does not produce EADs from IKr block alone at any degree of block; the published modification used here shortens the ICaL f-gate time constant to enlarge the window current (Vandersickel et al. 2014), and DADs require an added RyR leak (Chakraborty et al.). Those are modifications of the cell model, not emergent properties of it.",
+    validation: T("EAD/DAD triggered activity"),
+    leads: ["II", "V2", "V5"],
+    apply: P((p) => {
+      p.ventricles.apd = Math.round(p.ventricles.apd * 1.173);
+      p.ventricles.transmuralGradient = Math.round(p.ventricles.transmuralGradient * 1.173);
+      p.ventricles.apicobasalGradient = Math.round(p.ventricles.apicobasalGradient * 1.173);
+      p.ectopy = { ...p.ectopy, site: "lv-lateral", pattern: "bigeminy", coupling: EAD_COUPLING };
+    }),
+  },
+  drug("drug-dofetilide", "dofetilide", 4, "ikr-dominant"),
+  drug("drug-quinidine", "quinidine", 1, "ikr-dominant"),
+  drug("drug-flecainide", "flecainide", 4, "na-dominant"),
+  drug("drug-verapamil", "verapamil", 4, "cal-dominant"),
 ];
 
 /** Machine-readable export (used by scripts/export-registry.ts). */
