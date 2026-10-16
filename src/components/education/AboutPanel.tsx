@@ -25,7 +25,7 @@ export function AboutPanel({ buildMs }: { buildMs: number }) {
           <dt>ECG</dt>
           <dd>Lead field of the impressed current −σi∇Vm: infinite-medium potentials at V1–V6, Einthoven lead vectors for limb electrodes, Wilson central terminal, Goldberger leads.</dd>
           <dt>Level 3</dt>
-          <dd>ten Tusscher–Panfilov 2006 ventricular cell model in the Ionic cell tab (single cells; results mapped onto the tissue as APD/CV scaling). Re-entry (AVNRT, AVRT, flutter, AF, scar VT, polymorphic VT, fibrillation) emerges from the tissue graph and lumped AV links. The ionic model is not coupled cell-to-cell, so afterdepolarisations exist only in the single cell and reach the tissue as the timing of a triggered beat; torsades de pointes is not available. Calcium disorders use a measured human QT slope rather than the cell model, which reproduces the opposite direction. See the scenario registry and SCIENTIFIC_LIMITATIONS.</dd>
+          <dd>ten Tusscher–Panfilov 2006 ventricular cell model in the Ionic cell tab (single cells; results mapped onto the tissue as APD/CV scaling). Re-entry (AVNRT, AVRT, flutter, AF, scar VT, polymorphic VT, fibrillation) emerges from the tissue graph and lumped AV links. The ionic model is not coupled cell-to-cell, so afterdepolarisations exist only in the single cell and reach the tissue as the timing of a triggered beat; torsades de pointes uses the two-foci mechanism, which reproduces the twisting morphology but does not derive the foci from the long QT. Calcium disorders use a measured human QT slope rather than the cell model, which reproduces the opposite direction. See the scenario registry and SCIENTIFIC_LIMITATIONS.</dd>
         </dl>
       </div>
       <div className="card">

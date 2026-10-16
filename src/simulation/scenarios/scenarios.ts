@@ -9,7 +9,8 @@
  *  - "partial":     only part of the mechanism is simulated (e.g. a reduced-order proxy).
  *  - "placeholder": listed, no model behind it (none at present — kept for completeness).
  *  - "unsupported": requires model capabilities that do not exist yet; NOT runnable, so no
- *                   misleading waveform is ever shown.
+ *                   misleading waveform is ever shown. No scenario is in this class at present —
+ *                   the class is kept so that a future mechanism can be refused honestly again.
  *
  * Every runnable scenario is a parameter set applied to the default model — no waveform is
  * stored anywhere. `apply` always starts from DEFAULT_PARAMS so scenarios are reproducible.
@@ -55,7 +56,6 @@ export interface Scenario {
 }
 
 const ALL: Criteria = { mechanism: true, initialization: true, activationSequence: true, ecg: true, actionPotential: true, explanation: true, validation: true, ui: true };
-const NONE: Criteria = { mechanism: false, initialization: false, activationSequence: false, ecg: false, actionPotential: false, explanation: false, validation: false, ui: false };
 const P = (f?: (p: SimParams) => void) => () => {
   const p = cloneParams(DEFAULT_PARAMS);
   f?.(p);
@@ -72,23 +72,7 @@ const T = (name: string) => `Automated test: "${name}" (tests/physiology/scenari
 export const EAD_COUPLING = 390;
 export const DAD_COUPLING = 403;
 
-const unsupported = (id: string, name: string, group: Scenario["group"], needs: string): Scenario => ({
-  id,
-  name,
-  group,
-  status: "unsupported",
-  modelClass: "none",
-  criteria: NONE,
-  mechanism: "—",
-  structures: "—",
-  changes: "—",
-  activation: "—",
-  ecg: "—",
-  initiation: "—",
-  limitations: `Not runnable. Requires: ${needs}`,
-  validation: "Not applicable (no model).",
-  leads: [],
-});
+// (Every scenario in the registry is now runnable; the "unsupported" helper was removed in v1.2.0.)
 
 
 /**
@@ -757,7 +741,7 @@ export const SCENARIOS: Scenario[] = [
     ecg: "Sustained wide-complex tachycardia, cycle length ≈ 310 ms (≈ 195 /min), with a continuously changing QRS — measured axis dispersion ≈ 61°, against ≈ 10° for the monomorphic scar VT in the same substrate.",
     initiation: "Burst pacing, as for the monomorphic scenario; quiet in sinus rhythm.",
     limitations:
-      "Reduced-order: the wave break arises from the imposed geometry and refractoriness, not from source–sink mismatch or wavefront curvature, which this engine does not represent. The model does not draw a sharp line between polymorphic VT and fibrillation — the two scenarios here differ in degree of organisation and rate, not in kind. Cycle length depends on the refractory floor as described for the monomorphic scenario. Baseline tracing in sinus rhythm shows QRS ≈ 132 ms and QT ≈ 506 ms.",
+      "Reduced-order: the wave break arises from the imposed geometry and refractoriness, not from source–sink mismatch or wavefront curvature, which this engine does not represent. The model does not draw a sharp line between polymorphic VT and fibrillation — the two scenarios here differ in degree of organisation and rate, not in kind. Nor is this rhythm's changing axis distinguishable from the twisting of the torsades scenario by rotation alone (net/total rotation 0.94 here against 0.89 there); what differs is the setting and that this rhythm is sustained rather than self-terminating. Cycle length depends on the refractory floor as described for the monomorphic scenario. Baseline tracing in sinus rhythm shows QRS ≈ 132 ms and QT ≈ 506 ms.",
     validation: T("polymorphic VT"),
     leads: ["II", "V1", "V6"],
     apply: P((p) => {
@@ -769,12 +753,31 @@ export const SCENARIOS: Scenario[] = [
       p.ectopy = { ...p.ectopy, site: "scar-border", pattern: "run", runLength: 8, coupling: 260, every: 3 };
     }),
   },
-  unsupported(
-    "tdp",
-    "Torsades de pointes",
-    "D · Ventricular",
-    "a mechanism this engine does not have. Torsades was attempted and the attempts are documented rather than dressed up as a result. (1) Initiation: a late-coupled R-on-T beat on a long-QT, heterogeneous substrate failed to start re-entry in all 30 combinations tried (coupling 280–400 ms × heterogeneity 0.15–0.25 × two sites); a single premature beat cannot break a wavefront here, because the engine has no source–sink or curvature physics. (2) Morphology: when re-entry is instead started with a burst on a long-QT substrate, the beat-to-beat axis rotates at chance consistency (≈ 53 %), i.e. randomly polymorphic — not the progressive twisting that defines torsades. (3) Rate: those rhythms run at a cycle length of 166–200 ms, in the fibrillation range rather than the 240–375 ms of torsades, and they are sustained rather than self-terminating. Offering any of them as torsades would be mislabelling. The long-QT substrate and the EAD-triggered beat that precede torsades clinically ARE available — see the EAD / DAD scenario and the IKr-blocking drug scenarios.",
-  ),
+  {
+    id: "tdp",
+    name: "Torsades de pointes",
+    group: "D · Ventricular",
+    status: "partial",
+    modelClass: "reduced-order",
+    criteria: { ...ALL, mechanism: false },
+    mechanism:
+      "Two triggered foci at opposite ends of the ventricles fire runs at slightly different cycle lengths (320 and 327 ms). They start together, so each beat is a fusion of the two; because one is 7 ms slower, the interval between them grows by 7 ms per beat and the fusion shifts progressively towards the earlier focus. That is what rotates the QRS axis — the \"twisting of the points\" of Dessertenne's original description. Each run begins after a short–long–short sequence: a single triggered beat, the compensatory pause that follows it, then the run, at a coupling interval of 390 ms (the EAD takeoff time measured in the TP06 cell).",
+    structures: "Two ventricular triggered foci (RV apex and LV anterobasal wall) on a long-QT substrate.",
+    changes: "Ventricular APD × 1.173 (the mapped effect of 90 % IKr block) and the torsades generator on: foci at 320/327 ms, 16-beat runs every 9th sinus beat, coupling 390 ms.",
+    activation: "Each beat is activated from both foci at once, with the share contributed by each shifting steadily from beat to beat.",
+    ecg: "Recurrent, self-terminating runs of polymorphic wide-complex tachycardia on a prolonged QT, at ≈ 230 /min, in which the axis rotates progressively through ≈ 125° — measured rotation consistency 84 %, against ≈ 50 % (chance) for the randomly polymorphic rhythms. Sinus rhythm resumes between runs.",
+    initiation: "Automatic and recurrent, each run preceded by a short–long–short sequence.",
+    limitations:
+      "The twisting morphology is reproduced; the causal chain that produces it clinically is not. The two foci are IMPOSED, not generated by the long QT: running the same generator on a normal-QT substrate gives essentially the same rotation (132° at 84 % consistency), so this scenario does not show why QT prolongation predisposes to torsades, and it cannot be used to predict torsade risk. The coupling interval comes from an EAD measured in the single-cell model, but the tissue does not generate afterdepolarisations (see the EAD / DAD scenario). The two-foci account is one of the classical explanations of the morphology (Dessertenne 1966); tridimensional mapping in animal models instead attributes initiation to focal subendocardial triggered activity meeting a large transmural dispersion of repolarisation, producing functional block and re-entry (Kozhevnikov et al. 2002) — that re-entrant route was tested here and did not work (see docs/SCIENTIFIC_LIMITATIONS.md). Run length, focus sites and cycle lengths are nominal, chosen to land in the reported 200–250 /min range. Finally, the rotating axis does not by itself distinguish this from the polymorphic VT scenario, whose axis also turns coherently (net/total rotation 0.94 against 0.89 here); in this model the two differ by setting, rate and duration — torsades recurs in short self-terminating runs on a long QT, polymorphic VT is sustained on a scar — rather than by the twist alone.",
+    validation: T("torsades de pointes"),
+    leads: ["II", "V1", "V5"],
+    apply: P((p) => {
+      p.ventricles.apd = Math.round(p.ventricles.apd * 1.173);
+      p.ventricles.transmuralGradient = Math.round(p.ventricles.transmuralGradient * 1.173);
+      p.ventricles.apicobasalGradient = Math.round(p.ventricles.apicobasalGradient * 1.173);
+      p.torsades = { enabled: true, siteA: "rv-apex", siteB: "lv-anterobasal", cycleA: 320, cycleB: 327, beats: 16, every: 9, coupling: EAD_COUPLING };
+    }),
+  },
   {
     id: "vf",
     name: "Ventricular fibrillation",

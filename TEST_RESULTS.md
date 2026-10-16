@@ -1,8 +1,8 @@
-# Test results — v1.1.0
+# Test results — v1.2.0
 
-Run on the v1.1.0 code base (headless Chromium 1194 for end-to-end tests).
+Run on the v1.2.0 code base (headless Chromium 1194 for end-to-end tests).
 
-## Unit / physiology (`npx vitest run`): 88 / 88 passed
+## Unit / physiology (`npx vitest run`): 89 / 89 passed
 
 | File | Tests | Covers |
 |---|---|---|
