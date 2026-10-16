@@ -112,7 +112,7 @@ export interface SimSnapshot {
   linkLastEntry: Float64Array;
   linkDir: Int8Array;
   linkTransit: Int32Array;
-  counters: { ectopy: number; san: number; his: number; focusEpoch: number };
+  counters: { ectopy: number; san: number; his: number; focusEpoch: number; tdp: number };
   childOf: [number, number][];
   waveCounter: number;
   active: Int32Array;
@@ -161,7 +161,7 @@ export class Simulator {
   linkTransit: Int32Array;
   readonly linkOf: Int16Array;
   readonly upperMask: Uint8Array;
-  counters = { ectopy: 0, san: 0, his: 0, focusEpoch: 0 };
+  counters = { ectopy: 0, san: 0, his: 0, focusEpoch: 0, tdp: 0 };
   /** Re-entry bookkeeping: wave → wave id used for its re-excitations. */
   childOf = new Map<number, number>();
   waveCounter = 0;
@@ -250,7 +250,7 @@ export class Simulator {
     this.linkLastEntry.fill(-cl + 40);
     this.linkDir.fill(0);
     this.linkTransit.fill(0);
-    this.counters = { ectopy: 0, san: 0, his: 0, focusEpoch: 0 };
+    this.counters = { ectopy: 0, san: 0, his: 0, focusEpoch: 0, tdp: 0 };
     this.childOf.clear();
     this.waveCounter = 0;
     this.queue.clear();
@@ -302,6 +302,7 @@ export class Simulator {
     rearm(m.hisProximal, old.junctionalCycle, this.d.junctionalCycle);
     rearm(m.ventEscape, old.ventricularEscapeCycle, this.d.ventricularEscapeCycle);
     const eo = JSON.stringify(oldParams.ectopy);
+    if (JSON.stringify(oldParams.torsades) !== JSON.stringify(this.params.torsades)) this.counters.tdp = 0;
     if (eo !== JSON.stringify(this.params.ectopy)) {
       this.counters.focusEpoch++;
       this.counters.ectopy = 0;
@@ -379,7 +380,7 @@ export class Simulator {
       // externally injected stimulus or ectopic focus
       wave = ++this.waveCounter;
       const w = newWave(wave, "ectopic", node, t);
-      w.site = src === -4 || src === -5 ? this.params.ectopy.site : "stimulus";
+      w.site = src === -4 || src === -5 ? this.params.ectopy.site : src === -6 ? "torsades focus" : "stimulus";
       this.waves.set(wave, w);
     } else if (this.lastWave[node] === wave && src >= 0) {
       // the same wave re-excites tissue it already activated → a re-entrant cycle has completed
@@ -618,6 +619,7 @@ export class Simulator {
    * stimuli at the coupling interval according to the selected pattern (deterministic).
    */
   private onReferenceBeat(w: WaveInfo, t: number, atrial: boolean): void {
+    if (!atrial) this.torsadesTick(w, t);
     const e = this.params.ectopy;
     if (e.site === "none" || e.pattern === "focus") return;
     if (w.origin !== "sinus" && w.origin !== "junctional" && w.origin !== "ventricular-escape") return;
@@ -647,6 +649,38 @@ export class Simulator {
         break;
     }
     for (let k = 1; k <= n; k++) this.queue.push(t + k * e.coupling, node, -4, -1, EV_EXCITE, 0);
+  }
+
+  /**
+   * Torsades generator. Every `every` conducted beats: the beat before fires one triggered beat
+   * from focus A at the coupling interval (the "short" cycle, followed by a compensatory "long"
+   * pause); on the next conducted beat a run starts at the same coupling, with focus A and focus B
+   * firing at slightly different cycle lengths. Their phase drifts by |cycleA − cycleB| per beat,
+   * so the share of the ventricles each captures — and the QRS axis — shifts progressively.
+   * The run stops after `beats` beats (self-termination).
+   */
+  private torsadesTick(w: WaveInfo, t: number): void {
+    const tp = this.params.torsades;
+    if (!tp.enabled) return;
+    if (w.origin !== "sinus" && w.origin !== "junctional" && w.origin !== "ventricular-escape") return;
+    const a = this.model.ectopicSites[tp.siteA];
+    const b = this.model.ectopicSites[tp.siteB];
+    if (a === undefined || b === undefined) return;
+    const k = Math.max(3, Math.round(tp.every));
+    this.counters.tdp = (this.counters.tdp || 0) + 1;
+    const c = this.counters.tdp % k;
+    if (c === k - 1) {
+      this.queue.push(t + tp.coupling, a, -6, -1, EV_EXCITE, 0);
+    } else if (c === 0) {
+      const start = t + tp.coupling;
+      const dur = Math.max(1, Math.round(tp.beats)) * tp.cycleA;
+      for (let x = start; x < start + dur; x += tp.cycleA) this.queue.push(x, a, -6, -1, EV_EXCITE, 0);
+      // Focus B starts in phase with A and runs slightly slower, so the interval between the two
+      // grows by |cycleB − cycleA| per beat. Early in the run both capture the ventricles together
+      // and the QRS is a fusion of the two; as the offset grows the fusion shifts progressively
+      // towards the earlier focus, which is what rotates the axis.
+      for (let x = start; x < start + dur; x += tp.cycleB) this.queue.push(x, b, -6, -1, EV_EXCITE, 0);
+    }
   }
 
   /** Compute one ECG sample at time T from the current membrane-potential field. */

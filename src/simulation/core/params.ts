@@ -106,6 +106,20 @@ export interface SimParams {
     retroErp: number; // ms
     antegrade: boolean; // false = concealed (retrograde-only) pathway
   };
+  /**
+   * Torsades de pointes generator: on a long-QT substrate, a pause-dependent run of triggered
+   * activity from two competing foci firing at slightly different cycle lengths.
+   */
+  torsades: {
+    enabled: boolean;
+    siteA: EctopicSite;
+    siteB: EctopicSite;
+    cycleA: number; // ms
+    cycleB: number; // ms
+    beats: number; // approximate length of each run (beats of focus A)
+    every: number; // sinus beats between runs
+    coupling: number; // ms, first triggered beat after the preceding QRS onset (EAD timing)
+  };
   ectopy: {
     site: EctopicSite;
     pattern: EctopyPattern;
@@ -199,6 +213,7 @@ export const DEFAULT_PARAMS: SimParams = {
   forward: { limbGain: 2.5, precordialGain: 0.8 },
   rhythm: { sinusArrest: false, saExitBlockEvery: 0 },
   accessory: { site: "none", conductionTime: 15, anteErp: 280, retroErp: 260, antegrade: true },
+  torsades: { enabled: false, siteA: "rv-apex", siteB: "lv-anterobasal", cycleA: 250, cycleB: 270, beats: 16, every: 6, coupling: 390 },
   ectopy: { site: "none", pattern: "single", coupling: 450, every: 4, runLength: 3, rate: 150, shot: 0 },
 };
 
@@ -811,6 +826,17 @@ PARAM_META.push(
     "Anterolateral LV activated late. Limitation: this model does not reproduce the expected left-axis deviation (see SCIENTIFIC_LIMITATIONS)."),
   sw("hisPurkinje.lpfBlock", "Left posterior fascicular block", "Conduction block", "Left posterior fascicle", "Conduction in the posterior fascicle is abolished.",
     "Inferoposterior LV activated late (expected rightward axis shift)."),
+  sw("torsades.enabled", "Torsades generator (two competing triggered foci)", "Triggered activity", "Ventricular myocardium (two triggered foci)",
+    "After a short–long sequence, two triggered foci fire runs at slightly different cycle lengths. Their phase drifts, so the region each one captures — and the QRS axis — shifts progressively from beat to beat.",
+    "A self-terminating polymorphic run with a progressively rotating axis; use on a long-QT substrate.",
+    "Two-foci interpretation from Dessertenne's original description (1966); mapping studies attribute initiation to focal subendocardial triggered activity (Kozhevnikov et al. 2002)."),
+  ch("torsades.siteA", "Torsades focus A", "Triggered activity", ECTOPIC_SITES, "Ventricular myocardium", "First triggered focus; also fires the single beat that creates the pause.", "Sites far apart give the largest axis swing."),
+  ch("torsades.siteB", "Torsades focus B", "Triggered activity", ECTOPIC_SITES, "Ventricular myocardium", "Second triggered focus.", "Sites far apart give the largest axis swing."),
+  num("torsades.cycleA", "Focus A cycle length", "ms", 180, 400, 5, "Triggered activity", "Focus A", "Interval between triggered beats of focus A.", "Sets the rate of the run.", "Nominal; chosen to give the 200–250 /min rate reported clinically."),
+  num("torsades.cycleB", "Focus B cycle length", "ms", 180, 400, 5, "Triggered activity", "Focus B", "Interval between triggered beats of focus B.", "The difference from focus A sets how many beats one full twist takes.", "Nominal."),
+  num("torsades.beats", "Run length", "beats", 4, 60, 1, "Triggered activity", "Both foci", "Approximate number of beats in each run before the triggered activity stops.", "Longer → longer episodes; the rhythm self-terminates when the run ends.", "Nominal."),
+  num("torsades.every", "Sinus beats between runs", "k", 3, 20, 1, "Triggered activity", "Both foci", "How often the short–long–short sequence and run recur.", "Smaller → more frequent episodes.", "Nominal."),
+  num("torsades.coupling", "Triggered coupling interval", "ms", 250, 600, 5, "Triggered activity", "Both foci", "Delay from the preceding QRS onset to the first triggered beat.", "Default 390 ms is the EAD takeoff time measured in the TP06 cell.", "Measured in this implementation of TP06 (scripts/dev/ead-timing.ts)."),
   ch("ectopy.site", "Ectopic focus", "Ectopy", ECTOPIC_SITES, "Atrial or ventricular myocardium",
     "Location at which premature (ectopic) excitations are injected.", "Origin determines the activation sequence and therefore P-wave or QRS morphology."),
   ch("ectopy.pattern", "Ectopy pattern", "Ectopy", ECTOPY_PATTERNS, "Timing of ectopic excitations",
