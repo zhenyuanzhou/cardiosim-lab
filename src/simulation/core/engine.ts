@@ -481,7 +481,7 @@ export class Simulator {
     this.prevAct[node] = this.lastAct[node];
     this.lastAct[node] = t;
     this.updateMemory(node, t);
-    this.apd[node] = apdDynamic(this.d.apdRef[node], this.clMem[node], di);
+    this.apd[node] = apdDynamic(this.d.apdRef[node], this.clMem[node], di, this.params.restitution.apdFloor);
     this.erp[node] = this.apd[node] * this.d.erpRatio[node];
     this.lastWave[node] = wave;
     this.record(node, t, wave);
@@ -503,7 +503,7 @@ export class Simulator {
     this.prevAct[node] = this.lastAct[node];
     this.lastAct[node] = t;
     this.updateMemory(node, t);
-    const apd = apdDynamic(d.apdRef[node], this.clMem[node], di);
+    const apd = apdDynamic(d.apdRef[node], this.clMem[node], di, this.params.restitution.apdFloor);
     this.apd[node] = apd;
     this.erp[node] = apd * d.erpRatio[node];
     this.lastWave[node] = wave;

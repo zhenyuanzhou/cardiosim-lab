@@ -87,6 +87,8 @@ export interface SimParams {
   restitution: {
     cvAmplitude: number; // fractional CV reduction at DI -> 0
     cvTau: number; // ms
+    /** APD never falls below this fraction of APDref; sets the period of functional re-entry. */
+    apdFloor: number;
   };
   forward: {
     limbGain: number; // dimensionless torso transfer factor for limb electrodes
@@ -193,7 +195,7 @@ export const DEFAULT_PARAMS: SimParams = {
     heterogeneity: 0,
   },
   electrolytes: { serumCalcium: 2.4 },
-  restitution: { cvAmplitude: 0.5, cvTau: 30 },
+  restitution: { cvAmplitude: 0.5, cvTau: 30, apdFloor: 0.45 },
   forward: { limbGain: 2.5, precordialGain: 0.8 },
   rhythm: { sinusArrest: false, saExitBlockEvery: 0 },
   accessory: { site: "none", conductionTime: 15, anteErp: 280, retroErp: 260, antegrade: true },
@@ -776,6 +778,10 @@ PARAM_META.push(
     "Relative spatial dispersion of ventricular APD (seeded, smoothed over ≈ 5 mm), on top of the transmural and apicobasal gradients.",
     "Higher → local block and wave break during rapid or premature activation; the substrate for polymorphic VT and fibrillatory conduction.",
     "Nominal magnitude; the spatial pattern is a smoothed random field, not patient anatomy."),
+  num("restitution.apdFloor", "APD floor (fraction of reference APD)", "×", 0.3, 0.95, 0.01, "Restitution", "Working myocardium (short diastolic intervals)",
+    "The shortest action potential the tissue will produce, as a fraction of its reference APD. It only binds at very short diastolic intervals, so it leaves normal-rate behaviour and the fitted steady-state restitution untouched.",
+    "Because this engine's re-entry has no excitable gap, this floor sets the cycle length of any functional re-entry: CL ≈ ERP/APD ratio × floor × reference APD. Raising it slows fibrillation and makes re-entry harder to sustain.",
+    "Nominal as a safeguard; used as the calibration handle for ventricular fibrillation cycle length (human VF 218 ± 24 ms, Nair et al. 2012)."),
   num("electrolytes.serumCalcium", "Serum calcium (total)", "mmol/L", 1.4, 3.6, 0.05, "Electrolytes", "Ventricular myocardium (repolarisation)",
     "Shifts ventricular APD by 30.1 ms per mmol/L fall in total serum calcium — the human QT–calcium slope from Mendelian randomisation in UK Biobank (Young et al. 2021, n = 76 226). The ionic cell model is NOT used here because TP06 reproduces the opposite direction.",
     "Lower calcium → longer QT with unchanged QRS; higher calcium → shorter QT.",

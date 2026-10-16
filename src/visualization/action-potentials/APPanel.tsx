@@ -10,7 +10,16 @@ import { CT } from "../../simulation/core/model";
 import { NODAL, SHAPES, nodalV, repolMidpoint, ventricularNotchScale, workingA } from "../../simulation/cellular/actionPotential";
 import { deriveAutonomic } from "../../simulation/core/derive";
 
-const WINDOW = 2000;
+/**
+ * Panel B shows exactly the same page as the 12-lead panel, so the two agree.
+ *
+ * The 12-lead panel sweeps a fixed page (10 s at 25 mm/s, 5 s at 50 mm/s) with a moving cursor.
+ * This panel previously swept a 2 s sub-page: both cursors marked the same instant in time, but
+ * the panels covered different spans, so at (say) t = 4.2 s the ECG showed a nearly full page of
+ * beats while this panel showed an almost empty 4–6 s window. Using the same page means a beat
+ * sits at the same fraction of the width in both panels and the cursors move together.
+ */
+const apWindow = (paperSpeed: 25 | 50) => (paperSpeed === 25 ? 10000 : 5000);
 const LABEL_W = 132;
 const V_MIN = -95;
 const V_MAX = 45;
@@ -36,6 +45,7 @@ export function APPanel({ probeIds }: { probeIds?: string[] } = {}) {
       const ids = probeIds ?? st.probes;
       const lanes = meta.probes.filter((p) => ids.includes(p.id)).map((p) => ({ node: p.node, label: p.label }));
       if (st.customNode !== null) lanes.push({ node: st.customNode, label: st.customLabel.length > 18 ? "Selected cell" : st.customLabel });
+      const WINDOW = apWindow(st.paperSpeed);
       const stripH = Math.max(56, Math.min(90, h * 0.2));
       const axisH = 16;
       const laneH = (h - stripH - axisH) / Math.max(1, lanes.length);
@@ -43,20 +53,23 @@ export function APPanel({ probeIds }: { probeIds?: string[] } = {}) {
       const pw = w - x0 - 8;
       // scroll in whole-pixel steps so samples and grid lines do not shimmer between frames
       const msPerPx = WINDOW / Math.max(1, pw);
-      const t0 = Math.floor((t - WINDOW) / msPerPx) * msPerPx;
+      // page sweep, aligned to the ECG panel's page (see the note on apWindow)
+      const t0 = Math.floor(t / WINDOW) * WINDOW;
+      const tEnd = Math.min(t, t0 + WINDOW); // traces are drawn up to the cursor only
       const X = (tt: number) => x0 + ((tt - t0) / WINDOW) * pw;
-      // time grid (200 ms)
+      // time grid: keep the lines at least ~8 px apart, whatever the page length
+      const gridMs = [200, 500, 1000, 2000].find((g) => g / msPerPx >= 8) ?? 2000;
       ctx.strokeStyle = tk.line;
       ctx.lineWidth = 1;
       ctx.font = "10px IBM Plex Mono, monospace";
       ctx.fillStyle = tk["fg-faint"];
-      for (let g = Math.ceil(t0 / 200) * 200; g <= t; g += 200) {
+      for (let g = Math.ceil(t0 / gridMs) * gridMs; g <= t0 + WINDOW; g += gridMs) {
         const x = X(g);
         ctx.beginPath();
         ctx.moveTo(x, 0);
         ctx.lineTo(x, h - axisH);
         ctx.stroke();
-        if (Math.round(g) % 1000 === 0) ctx.fillText(`${(g / 1000).toFixed(0)} s`, x + 2, h - 4);
+        if (Math.round(g) % 1000 === 0 && x + 26 <= w) ctx.fillText(`${(g / 1000).toFixed(0)} s`, x + 2, h - 4);
       }
       const d = deriveAutonomic(st.params);
       lanes.forEach((lane, li) => {
@@ -81,7 +94,7 @@ export function APPanel({ probeIds }: { probeIds?: string[] } = {}) {
         ctx.stroke();
         ctx.setLineDash([]);
         // activations relevant to the window
-        const recs = data.activationsIn(lane.node, t0 - 1000, t);
+        const recs = data.activationsIn(lane.node, t0 - 1000, tEnd);
         const shape = SHAPES[ct];
         const notch = ct === CT.VENTRICULAR ? ventricularNotchScale(meta.transmural[lane.node]) : 1;
         const nodal = ct === CT.SAN || ct === CT.AVN;
@@ -101,7 +114,7 @@ export function APPanel({ probeIds }: { probeIds?: string[] } = {}) {
         ctx.beginPath();
         const step = msPerPx;
         let first = true;
-        for (let tt = t0; tt <= t; tt += step) {
+        for (let tt = t0; tt <= tEnd; tt += step) {
           const x = X(tt);
           const y = Y(vAt(tt));
           if (first) ctx.moveTo(x, y);
@@ -112,7 +125,7 @@ export function APPanel({ probeIds }: { probeIds?: string[] } = {}) {
         // annotations for the most recent activation in the window
         const lastIdx = recs.length - 1;
         let ann = lastIdx;
-        while (ann >= 0 && data.recT[recs[ann]] > t) ann--;
+        while (ann >= 0 && data.recT[recs[ann]] > tEnd) ann--;
         if (ann >= 0) {
           const r = recs[ann];
           const ta = data.recT[r];
@@ -135,9 +148,9 @@ export function APPanel({ probeIds }: { probeIds?: string[] } = {}) {
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(X(ta), y90);
-            ctx.lineTo(Math.min(X(t), X(ta + apd)), y90);
+            ctx.lineTo(Math.min(X(tEnd), X(ta + apd)), y90);
             ctx.stroke();
-            if (ta + erp <= t) {
+            if (ta + erp <= tEnd) {
               ctx.strokeStyle = tk.bad;
               ctx.beginPath();
               ctx.moveTo(X(ta + erp), Y(V_MAX) + 2);
@@ -148,7 +161,7 @@ export function APPanel({ probeIds }: { probeIds?: string[] } = {}) {
             ctx.fillStyle = tk.accent;
             ctx.font = "600 10px IBM Plex Sans, system-ui, sans-serif";
             const lab = (txt: string, tt: number, v: number) => {
-              if (tt < t0 || tt > t) return;
+              if (tt < t0 || tt > tEnd) return;
               ctx.fillText(txt, X(tt) + 2, Y(v) - 3);
             };
             if (!nodal) {
@@ -172,7 +185,7 @@ export function APPanel({ probeIds }: { probeIds?: string[] } = {}) {
       const mvPx = stripH / 3.2;
       const base = sy0 + stripH * 0.62;
       ctx.strokeStyle = tk["grid-minor"];
-      for (let g = Math.ceil(t0 / 40) * 40; g <= t; g += 40) {
+      for (let g = Math.ceil(t0 / 40) * 40; g <= t0 + WINDOW; g += 40) {
         ctx.beginPath();
         ctx.moveTo(X(g), sy0);
         ctx.lineTo(X(g), sy0 + stripH);
@@ -183,12 +196,12 @@ export function APPanel({ probeIds }: { probeIds?: string[] } = {}) {
       ctx.fillText("Lead II", 8, sy0 + 16);
       ctx.fillStyle = tk["fg-faint"];
       ctx.font = "10px IBM Plex Sans, system-ui, sans-serif";
-      ctx.fillText("same time axis", 8, sy0 + 30);
+      ctx.fillText("same page as ECG", 8, sy0 + 30, LABEL_W - 16);
       ctx.strokeStyle = tk.trace;
       ctx.lineWidth = 1.3;
       ctx.beginPath();
       let first = true;
-      for (let tt = Math.ceil(Math.max(t0, data.tStart) / data.dt) * data.dt; tt <= t; tt += data.dt) {
+      for (let tt = Math.ceil(Math.max(t0, data.tStart) / data.dt) * data.dt; tt <= tEnd; tt += data.dt) {
         const v = data.at(tt, 1);
         if (Number.isNaN(v)) continue;
         const x = X(tt);
@@ -199,7 +212,7 @@ export function APPanel({ probeIds }: { probeIds?: string[] } = {}) {
       }
       ctx.stroke();
       // inspect marker & now-cursor
-      if (st.inspectT !== null && st.inspectT >= t0 && st.inspectT <= t) {
+      if (st.inspectT !== null && st.inspectT >= t0 && st.inspectT <= t0 + WINDOW) {
         ctx.strokeStyle = tk.cursor;
         ctx.setLineDash([4, 3]);
         ctx.beginPath();

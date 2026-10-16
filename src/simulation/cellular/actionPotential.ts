@@ -17,7 +17,20 @@
 import { CT } from "../core/model";
 
 export const RESTITUTION = { h: 0.1, tau: 2880 };
-/** Numerical safeguard (not data-derived): APD never falls below this fraction of APDref. */
+/**
+ * APD never falls below this fraction of APDref. Originally a numerical safeguard (not
+ * data-derived), but it turns out to govern the period of any functional re-entry in this engine:
+ * because the event-driven graph has no source–sink or curvature physics, a rotor has no excitable
+ * gap and its cycle length is simply the refractory period, i.e.
+ *
+ *     CL(re-entry) ≈ erpRatio × apdFloor × APDref
+ *
+ * Measured across 18 fibrillation runs (scripts/dev/vf-scan2.ts) the ratio CL/APDref was
+ * 0.408–0.422 against a predicted 0.92 × 0.45 = 0.414. The floor is therefore exposed as a
+ * parameter (`restitution.apdFloor`) so that fibrillation can be calibrated against measured human
+ * cycle lengths; it only binds at very short diastolic intervals, so it does not disturb the
+ * steady-state restitution fitted to Franz et al. 1988.
+ */
 export const APD_FLOOR_FRACTION = 0.45;
 
 export function rho(di: number): number {
@@ -31,8 +44,8 @@ export function apdInfFromRef(apdRef: number): number {
   return apdRef / rho(1000 - apdRef);
 }
 
-export function apdFromDI(apdInf: number, apdRef: number, di: number): number {
-  return Math.max(APD_FLOOR_FRACTION * apdRef, apdInf * rho(di));
+export function apdFromDI(apdInf: number, apdRef: number, di: number, floor = APD_FLOOR_FRACTION): number {
+  return Math.max(floor * apdRef, apdInf * rho(di));
 }
 
 /**
@@ -66,10 +79,10 @@ export function steadyStateScale(cl: number): number {
   const k = Math.min(SS_LUT.length - 2, Math.floor(f));
   return SS_LUT[k] + (SS_LUT[k + 1] - SS_LUT[k]) * (f - k);
 }
-export function apdDynamic(apdRef: number, clMem: number, di: number): number {
+export function apdDynamic(apdRef: number, clMem: number, di: number, floor = APD_FLOOR_FRACTION): number {
   const { amplitude, tau } = DYNAMIC_RESTITUTION;
   const a = apdRef * steadyStateScale(clMem) * (1 - amplitude * Math.exp(-Math.max(0, di) / tau));
-  return Math.max(APD_FLOOR_FRACTION * apdRef, a);
+  return Math.max(floor * apdRef, a);
 }
 
 /** Steady-state APD at a given cycle length (fixed-point iteration). */
