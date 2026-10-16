@@ -557,7 +557,7 @@ export const SCENARIOS: Scenario[] = [
     criteria: ALL,
     mechanism: "Dual AV-nodal pathways. A premature atrial beat blocks in the fast pathway (longer ERP), conducts down the slow pathway (PR jump) and returns up the recovered fast pathway; the circuit then sustains (slow–fast).",
     structures: "AV-node fast and slow pathways, atria, His–Purkinje system.",
-    changes: "Dual pathway on; retrograde conduction 'conducted', retrograde ERP 180 ms; PAC from the low RA, coupling 330 ms (one PAC).",
+    changes: "Dual pathway on; retrograde conduction 'conducted', retrograde nodal time 20 ms, retrograde ERP 150 ms, slow-pathway minimum AH 210 ms; PAC from the low RA, coupling 330 ms (one PAC). Calibrated to typical AVNRT: CL 317 ± 43 ms, HA 45.8 ± 7.7 ms (Katritsis et al. 2015).",
     activation: "Atria and ventricles activated almost simultaneously each cycle (retrograde atrial activation via the fast pathway).",
     ecg: "PAC with a long PR, then a regular narrow-complex tachycardia; retrograde P waves inferior-negative, buried in or just after the QRS.",
     initiation: "Single PAC at 330 ms after the third sinus beat (programmed-stimulation analogue).",
@@ -567,7 +567,12 @@ export const SCENARIOS: Scenario[] = [
     apply: P((p) => {
       p.avNode.dualPathway = true;
       p.avNode.retrograde = "conducted";
-      p.avNode.retroErp = 180;
+      // Calibrated (scripts/dev/avnrt-scan*.ts) so that the retrograde fast pathway is quick enough for
+      // atrial activation to fall inside / at the end of the QRS, as in typical (slow–fast) AVNRT:
+      // HA 45.8 ± 7.7 ms, tachycardia CL 317 ± 43 ms (Katritsis et al. 2015, n = 34).
+      p.avNode.retroTime = 20;
+      p.avNode.retroErp = 150;
+      p.avNode.slowAhMin = 210;
       p.ectopy = { ...p.ectopy, site: "ra-low", pattern: "once", coupling: 330, every: 3 };
     }),
   },

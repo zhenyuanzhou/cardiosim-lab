@@ -181,9 +181,15 @@ describe("Group C — supraventricular", () => {
     expect(re.length).toBeGreaterThanOrEqual(8);
     expect(re.every((w) => w.avnPath === "avn-slow" && w.site === "avn-fast")).toBe(true);
     const cl = re.slice(1).map((w, i) => w.tFirstVent - re[i].tFirstVent);
-    expect(median(cl)).toBeGreaterThan(250);
-    expect(median(cl)).toBeLessThan(500);
+    // Typical (slow–fast) AVNRT: CL 317 ± 43 ms, HA 45.8 ± 7.7 ms (Katritsis et al. 2015, Europace 17:1099).
+    expect(median(cl)).toBeGreaterThan(317 - 2 * 43);
+    expect(median(cl)).toBeLessThan(317 + 2 * 43);
     expect(Math.max(...cl.slice(2)) - Math.min(...cl.slice(2))).toBeLessThan(10); // regular
+    // retrograde atrial activation falls within / at the end of the QRS (no separate P wave):
+    // QRS onset → atrial onset of the next circuit wave, compared with the QRS duration.
+    const va = re.slice(2, -1).map((w, i) => re[i + 3].tFirstAtrial - w.tFirstVent);
+    expect(median(va)).toBeGreaterThanOrEqual(0);
+    expect(median(va)).toBeLessThanOrEqual(median(re.map(truthQrs)));
   });
   it("orthodromic AVRT", () => {
     const { waves } = sc("avrt-ortho");
