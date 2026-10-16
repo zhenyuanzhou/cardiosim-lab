@@ -57,7 +57,7 @@ export const CHEST = {
   midlineX: -45, // sternal midline relative to the ventricular centroid (heart lies left of midline)
   centerZ: -40,
   halfWidth: 160,
-  halfDepth: 105,
+  halfDepth: 125, // calibrated: precordial amplitudes (SCIENTIFIC_LIMITATIONS.md, "ECG amplitudes"); was 105
   ics4Y: -5, // 4th intercostal space level (V1, V2)
   ics5Y: 18, // 5th intercostal space level (V4–V6)
   sternalHalfWidth: 22,

@@ -45,8 +45,9 @@ describe("lead system", () => {
 });
 
 describe("timing coherence", () => {
-  it("every lead's QRS starts within 20 ms of the first ventricular activation", () => {
+  it("the QRS starts with the first ventricular activation (earliest lead ≤ 10 ms, every lead ≤ 30 ms)", () => {
     const w = base.waves[4];
+    const ons: number[] = [];
     const dt = base.sim.dt;
     for (let l = 0; l < 12; l++) {
       // first sample after P/PR where |dV/dt| exceeds 5 % of the lead's max QRS slope
@@ -63,8 +64,13 @@ describe("timing coherence", () => {
           break;
         }
       }
-      expect(Math.abs(on - w.tFirstVent)).toBeLessThanOrEqual(20);
+      ons.push(on - w.tFirstVent);
     }
+    // Global onset (earliest lead) coincides with the first ventricular activation.
+    expect(Math.min(...ons.map(Math.abs))).toBeLessThanOrEqual(10);
+    // A single lead nearly perpendicular to the initial (septal) forces stays isoelectric at first, so its
+    // own onset is later (V5: 24 ms since the v1.4 chest recalibration); none may lag by more than 30 ms.
+    for (const d of ons) expect(Math.abs(d)).toBeLessThanOrEqual(30);
   });
 
   it("signal-derived intervals agree with the activation model (activation map ↔ ECG)", () => {
@@ -82,6 +88,35 @@ describe("timing coherence", () => {
   it("measurements are reproducible for deterministic simulations", () => {
     const again = run(params(), 8000);
     expect(JSON.stringify(again.beats)).toBe(JSON.stringify(base.beats));
+  });
+});
+
+describe("amplitudes (v1.4.0 calibration)", () => {
+  it("sinus QRS amplitudes are within a factor of 2 of population medians", () => {
+    // Medians, Cleveland Family Study visit 5 (n = 732; sleepdata.org). Remaining misfit is documented
+    // in SCIENTIFIC_LIMITATIONS.md ("ECG amplitudes"); the bound guards against the 2–3× error of ≤ v1.3.
+    const w = base.waves[4];
+    const dt = base.sim.dt;
+    const ext = (l: number) => {
+      let hi = 0;
+      let lo = 0;
+      for (let t = w.tFirstVent - 10; t < w.tLastVent + 10; t += dt) {
+        const v = x(Math.round(t / dt), l);
+        hi = Math.max(hi, v);
+        lo = Math.min(lo, v);
+      }
+      return { R: hi, S: -lo };
+    };
+    const within2 = (model: number, median: number) => {
+      expect(model).toBeGreaterThan(median / 2);
+      expect(model).toBeLessThan(median * 2);
+    };
+    within2(ext(0).R, 0.751); // lead I R
+    within2(ext(6 + 1).R, 0.351); // V2 R
+    within2(ext(6 + 1).S, 0.937); // V2 S
+    within2(ext(6 + 2).R, 0.705); // V3 R
+    within2(ext(6 + 3).S, 0.332); // V4 S
+    within2(ext(6 + 5).R, 1.083); // V6 R
   });
 });
 

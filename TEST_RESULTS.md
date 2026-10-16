@@ -1,15 +1,15 @@
-# Test results — v1.2.0
+# Test results — v1.4.0
 
-Run on the v1.2.0 code base (headless Chromium 1194 for end-to-end tests).
+Run on the v1.4.0 code base (headless Chromium 1194 for end-to-end tests).
 
-## Unit / physiology (`npx vitest run`): 89 / 89 passed
+## Unit / physiology (`npx vitest run`): 90 / 90 passed
 
 | File | Tests | Covers |
 |---|---|---|
 | tests/physiology/normalSinus.test.ts | 12 | NSR intervals vs reference ranges, lead identities (Einthoven, Goldberger, WCT), activation order |
 | tests/physiology/rateDependence.test.ts | 4 | Rate → QT and AV-nodal conduction, vagal effects |
 | tests/simulation/engine.test.ts | 12 | Determinism, checkpoint/restore replay, parameter changes only after t, AV-nodal block, escape rhythms, premature activation, refractoriness |
-| tests/ecg/ecg.test.ts | 10 | Forward model and measurement pipeline |
+| tests/ecg/ecg.test.ts | 11 | Forward model and measurement pipeline; v1.4.0: sinus QRS amplitudes within ×2 of six population medians, restated QRS-onset coherence (earliest lead ≤ 10 ms, every lead ≤ 30 ms) |
 
 ### Added in v1.1.0 (13 tests in tests/physiology/scenarios.test.ts)
 
@@ -30,7 +30,7 @@ Run on the v1.2.0 code base (headless Chromium 1194 for end-to-end tests).
 Scenario tests check mechanism signatures from the simulator's own records, not only waveform changes. For example:
 - **Mobitz I:** progressive AH lengthening before the block.
 - **PVC:** concealed retrograde block of the next sinus P and an exactly compensatory pause.
-- **AVNRT:** ≥ 8 cycles via slow-antegrade / fast-retrograde conduction.
+- **AVNRT:** ≥ 8 cycles via slow-antegrade / fast-retrograde conduction; since v1.4.0 CL within 317 ± 2·43 ms (Katritsis 2015) and retrograde atrial activation within the QRS.
 - **Antidromic AVRT:** pre-excited complexes with retrograde AV-nodal conduction.
 
 ## End-to-end (`npx playwright test`): 20 / 20 passed

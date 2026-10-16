@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-16T15:09:08.486Z",
+  "generated": "2026-10-16T20:22:48.009Z",
   "statusClasses": [
     "validated",
     "incomplete",
@@ -422,7 +422,7 @@
       },
       "complete": true,
       "runnable": true,
-      "changes": "Dual pathway on; retrograde conduction 'conducted', retrograde ERP 180 ms; PAC from the low RA, coupling 330 ms (one PAC).",
+      "changes": "Dual pathway on; retrograde conduction 'conducted', retrograde nodal time 20 ms, retrograde ERP 150 ms, slow-pathway minimum AH 210 ms; PAC from the low RA, coupling 330 ms (one PAC). Calibrated to typical AVNRT: CL 317 ± 43 ms, HA 45.8 ± 7.7 ms (Katritsis et al. 2015).",
       "limitations": "Pathways are lumped links joined at the His bundle (no lower common pathway, no atrial tissue in the circuit apart from the inputs). Rate depends on nominal pathway parameters.",
       "validation": "Automated test: \"AVNRT\" (tests/physiology/scenarios.test.ts)."
     },

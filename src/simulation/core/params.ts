@@ -213,7 +213,7 @@ export const DEFAULT_PARAMS: SimParams = {
   },
   electrolytes: { serumCalcium: 2.4 },
   restitution: { cvAmplitude: 0.5, cvTau: 30, apdFloor: 0.45 },
-  forward: { limbGain: 2.5, precordialGain: 0.8 },
+  forward: { limbGain: 1.0, precordialGain: 0.8 },
   rhythm: { sinusArrest: false, saExitBlockEvery: 0 },
   accessory: { site: "none", conductionTime: 15, anteErp: 280, retroErp: 260, antegrade: true },
   torsades: { enabled: false, siteA: "rvot", cycleA: 300, drift: 1, beats: 16, every: 8, coupling: 390 },
@@ -723,7 +723,7 @@ export const PARAM_META: ParamMeta[] = [
       "Scales potentials at RA/LA/LL. The infinite homogeneous conductor under-estimates distant (limb) potentials relative to a bounded torso; this scalar partly compensates.",
     prediction: "Changes limb-lead amplitudes only; timing and morphology unchanged.",
     evidence: "calibrated",
-    source: "Calibrated so limb-lead QRS amplitudes are of typical adult magnitude (~0.5–1.5 mV).",
+    source: "Calibrated (v1.4.0) so that the sinus lead I R amplitude matches the population median 0.75 mV (Cleveland Family Study, n = 732); was 2.5, which gave 1.83 mV.",
   },
   {
     path: "forward.precordialGain",
@@ -737,7 +737,7 @@ export const PARAM_META: ParamMeta[] = [
     mechanism: "Scales potentials at V1–V6 before the Wilson central terminal is subtracted.",
     prediction: "Changes precordial amplitudes; morphology unchanged.",
     evidence: "calibrated",
-    source: "Calibrated so precordial QRS amplitudes are of typical adult magnitude (~1–3 mV).",
+    source: "Log-least-squares fit to six precordial population medians (Cleveland Family Study, n = 732) together with the chest depth (125 mm half-depth). V2–V3 S remain ≈ 1.7× the median; R-wave progression is poor (SCIENTIFIC_LIMITATIONS.md).",
   },
 ];
 

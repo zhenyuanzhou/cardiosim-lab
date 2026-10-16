@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.4.0] — 2026-10-16
+
+Supraventricular tachycardias looked ventricular. Two separate causes, one specific to AVNRT and
+one in the ECG forward model that affected every rhythm.
+
+### AVNRT circuit timing
+The retrograde fast pathway was far too slow: His → atrium ≈ 140 ms, so the retrograde P wave sat
+in the ST segment as a separate wave and the rate was 153/min. Calibrated to typical slow–fast
+AVNRT (Katritsis et al. 2015: HA 45.8 ± 7.7 ms, CL 317 ± 43 ms): retrograde nodal time 60 → 20 ms,
+retrograde ERP 180 → 150 ms, slow-pathway AH 200 → 210 ms. Now CL 340 ms (176/min) with atrial
+activation at the end of the QRS (pseudo-S in II). The AVNRT test now checks CL against the
+literature range and that atrial activation falls within the QRS.
+
+### ECG amplitudes (all rhythms)
+The QRS was 2–3× too large for the T wave: lead I R 1.83 mV and V2–V3 S 2.7 mV, against population
+medians of 0.75 and 0.94 mV (Cleveland Family Study, n = 732). At tachycardia rates the giant
+V1–V3 complexes with tall T waves read as a wide-complex tachycardia.
+- Limb-lead torso factor 2.5 → 1.0 (lead I R 0.73 mV).
+- Chest half-depth 105 → 125 mm (chest electrodes 20 mm further from the idealised heart; V2 S 1.6 mV).
+- Still wrong and documented: poor R-wave progression (transition V5–V6), V2–V3 S ≈ 1.7× the
+  median, flat V6 T. Re-orienting the heart fixed the transition but inverted the lateral T waves,
+  so the anatomy was left unchanged.
+- New test: sinus QRS amplitudes within a factor of 2 of six population medians.
+
+### Measurement
+QRS offset now requires the spatial slope to stay below threshold for 10 ms (was 3 samples).
+Slow terminal forces in RBBB hover at 2–6 % of the peak slope; with the new amplitudes the old rule
+ended the QRS at the first brief dip (94 ms measured vs 146 ms true). Now 146 ms.
+The timing-coherence test was restated: the earliest lead's QRS onset must be within 10 ms of the
+first ventricular activation, and every lead within 30 ms (was 20 ms per lead). V5 now starts 24 ms
+late because it is nearly perpendicular to the initial septal forces.
+
+### Atrial flutter (investigated, not changed)
+The circuit is counterclockwise, but the inferior F waves are positive-dominant, not the typical
+negative saw-tooth: the left atrium is activated almost simultaneously across a broad septal
+interface, so its negative contribution is too weak. An explicit coronary-sinus bridge did not
+change this and was not kept. Documented in SCIENTIFIC_LIMITATIONS.md.
+
 ## [1.3.0] — 2026-10-16
 
 Torsades reworked after the v1.2.0 waveform was judged wrong on sight. It was: the complexes

@@ -115,7 +115,14 @@ export function measureBeats(ecg: Float32Array, dt: number, i0: number, waves: W
     }
     let off = p;
     const lowOff = 0.025 * peak; // offset: 2.5 % of peak slope (captures slow terminal forces, e.g. RBBB)
-    while (off < n - 2 && !(D[off] < lowOff && D[off + 1] < lowOff && D[off + 2] < lowOff)) off++;
+    // The slope must stay below the threshold for 10 ms: slow terminal forces (e.g. the RV in RBBB)
+    // hover around 2–6 % of the peak slope and would otherwise end the QRS at their first brief dip.
+    const quiet = Math.max(3, Math.round(10 / dt));
+    const isQuiet = (k: number) => {
+      for (let q = k; q < Math.min(n, k + quiet); q++) if (D[q] >= lowOff) return false;
+      return true;
+    };
+    while (off < n - quiet && !isQuiet(off)) off++;
     // Very broad (> 170 ms) complexes: repolarisation can begin before D reaches 4 % (no isoelectric ST). Take the
     // first pronounced minimum of D (< 12 % of peak, followed by a rise of > 50 %) if it comes earlier.
     if ((off - on) * dt > 170) {
