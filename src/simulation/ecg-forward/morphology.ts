@@ -39,16 +39,25 @@ const EMPTY: MorphologySummary = { axes: [], times: [], axisDispersion: NaN, mea
 /**
  * Frontal-plane axis of each beat.
  *
+ * Activations closer together than `mergeMs` are treated as ONE beat. Two wavefronts that start a
+ * few milliseconds apart — two triggered foci firing almost together, say — depolarise the
+ * ventricles as a single fused QRS with one axis, and counting them separately would both double
+ * the apparent rate and make a smoothly rotating axis look like a zigzag.
+ *
  * @param ecg          interleaved ECG buffer (N_CHANNELS per sample)
  * @param dt           sample interval (ms)
  * @param activations  activation times (ms) — e.g. `tFirstVent` of each wave
  * @param window       how long after each activation to look for the peak vector (ms)
+ * @param mergeMs      activations within this of the previous one belong to the same QRS
  */
-export function analyseMorphology(ecg: Float32Array, dt: number, activations: number[], window = 120): MorphologySummary {
+export function analyseMorphology(ecg: Float32Array, dt: number, activations: number[], window = 120, mergeMs = 80): MorphologySummary {
   const nSamples = ecg.length / N_CHANNELS;
   const axes: number[] = [];
   const times: number[] = [];
-  for (const t of [...activations].sort((a, b) => a - b)) {
+  const sorted = [...activations].sort((a, b) => a - b);
+  const merged: number[] = [];
+  for (const t of sorted) if (!merged.length || t - merged[merged.length - 1] > mergeMs) merged.push(t);
+  for (const t of merged) {
     const i0 = Math.max(0, Math.round(t / dt));
     const i1 = Math.min(nSamples - 1, Math.round((t + window) / dt));
     if (i1 <= i0) continue;
