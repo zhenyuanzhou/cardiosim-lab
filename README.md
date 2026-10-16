@@ -5,7 +5,7 @@ Interactive cardiac electrophysiology and 12-lead ECG simulator. One causal simu
 <p align="center">
   <a href="docs/media/CardioSim-demo.mp4"><img src="docs/media/demo-preview.gif" alt="CardioSim Lab in action: activation spreading through the heart, the heart vector projected onto leads II and aVR, a premature ventricular complex, and normal conduction compared with left bundle branch block" width="100%"></a>
 </p>
-<p align="center"><sub>28-second preview, recorded from the running app: normal activation → lead vectors → premature ventricular complex → normal vs LBBB (A/B view).<br><b><a href="docs/media/CardioSim-demo.mp4">Watch the full 3-minute demo (MP4, 1080p, 15 MB)</a></b></sub></p>
+<p align="center"><sub>28-second preview, recorded from the running app: normal activation → lead vectors → premature ventricular complex → normal vs LBBB (A/B view).<br><b><a href="docs/media/CardioSim-demo.mp4">Watch the full narrated demo (4 min 21 s, MP4, 1080p, 21 MB)</a></b></sub></p>
 
 > **Research education and concept demonstration only.** This is not a clinically validated diagnostic system or a patient-specific prediction tool, and it does not predict clinical drug effects.
 

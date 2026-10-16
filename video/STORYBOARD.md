@@ -1,8 +1,16 @@
 # Demo video — script and storyboard
 
-File: `CardioSim-demo.mp4`
-- 1920×1080, 30 fps, H.264, 3 min 10 s.
-- Captions are burned in. There is no narration, because no reliable local text-to-speech engine was available.
+Files:
+- `docs/media/CardioSim-demo.mp4` — **narrated**, 1920×1080, 30 fps, H.264 + AAC, 4 min 21 s.
+- `CardioSim-v1.0.0-demo.mp4` (release folder) — the original silent cut, 3 min 10 s. The scene times in the table below refer to this cut.
+
+Narration:
+- Script: `video/narration.json` (33 lines, one per caption change). Voice: Qwen3-TTS 12Hz 0.6B CustomVoice, speaker "Aiden", English; every clip was checked with speech recognition (faster-whisper small.en) against the script.
+- `video/mix_narration.py` places each line where its caption appears. When a line needs more time than its caption allows, the stretch of video just before the next caption is played more slowly (no freezes), so captions and speech change together (measured offset ≤ 0.04 s). Audio is normalised to −16 LUFS.
+- Scene starts in the narrated video: 1 at 0:00, 2 at 0:09, 3 at 1:09, 4 at 2:07, 5 at 2:44, 6 at 3:18, 7 at 4:13.
+
+Recording:
+- Captions are burned in.
 - Every frame is a screenshot of the running application (production build). The recorder in `video/record.mjs` steps the shared simulation clock deterministically.
 - Animated scenes capture 15 distinct frames per second; each frame is shown twice in the 30 fps file because software rendering of WebGL is slow.
 
