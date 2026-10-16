@@ -58,6 +58,10 @@ test.describe("CardioSim Lab", () => {
   });
 
   test("clicking the ECG inspects the heart state at that instant", async ({ page }) => {
+    // the inspector reports the simulated state at the clicked instant, so wait until the
+    // simulation has produced data for the part of the page being clicked
+    await page.waitForFunction(() => (window as unknown as { __cardiosim?: { sim?: { data?: { tEnd: number } } } }).__cardiosim?.sim?.data?.tEnd !== undefined
+      && (window as unknown as { __cardiosim: { sim: { data: { tEnd: number } } } }).__cardiosim.sim.data.tEnd > 3000, null, { timeout: 30000 });
     const box = (await page.locator('[data-testid="ecg-canvas"]').boundingBox())!;
     // rhythm strip (bottom row), early part of the page
     await page.mouse.click(box.x + 60, box.y + box.height * 0.85);
@@ -139,11 +143,13 @@ test.describe("CardioSim Lab", () => {
     expect(await inkFraction(page, "ap-canvas")).toBeGreaterThan(0.05);
   });
 
-  test("scenario registry: a validated PVC scenario produces an ectopic beat; unsupported ones cannot be loaded", async ({ page }) => {
+  test("scenario registry: every scenario is runnable and states its status; a PVC scenario produces an ectopic beat", async ({ page }) => {
     await page.click('[data-tab="scenarios"]');
+    // No scenario is "unsupported" any more; each one is loadable and shows an honest status.
     await page.click('[data-scenario="tdp"]');
-    await expect(page.locator('[data-testid="scenario-card"]')).toContainText("not supported yet");
-    await expect(page.locator('[data-testid="scenario-load"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="scenario-card"]')).toContainText(/partially simulated|implemented/);
+    await expect(page.locator('[data-testid="scenario-load"]')).toHaveCount(1);
+    expect(await page.locator('[data-scenario][data-status="unsupported"]').count()).toBe(0);
     await page.click('[data-scenario="pvc"]');
     await page.click('[data-testid="scenario-load"]');
     await page.waitForTimeout(6000);
