@@ -3,7 +3,7 @@
  * Paper conventions: 1 mm minor grid, 5 mm major grid; paper speed 25 or 50 mm/s;
  * gain 5, 10 or 20 mm/mV; 1 mV calibration pulse at the start of each row.
  */
-import { LEAD_NAMES } from "../../simulation/ecg-forward/leadField";
+import { ALL_LEAD_NAMES, N_CHANNELS, channelOf } from "../../simulation/ecg-forward/leadField";
 import type { SimData } from "../../simulation/worker/client";
 import type { BeatMeasurement } from "../../simulation/ecg-forward/measurements";
 
@@ -32,6 +32,8 @@ export interface EcgLayout {
 
 export interface EcgViewOpts {
   mode: "12lead" | "leads";
+  /** Chest leads shown in the 12-lead layout: standard V1–V6, right-sided (V3R–V6R) or posterior (V7–V9). */
+  chestSet?: ChestSet;
   paperSpeed: 25 | 50;
   gain: 5 | 10 | 20;
   leads: string[];
@@ -40,13 +42,16 @@ export interface EcgViewOpts {
   height: number;
 }
 
-const COLS: string[][] = [
-  ["I", "II", "III"],
-  ["aVR", "aVL", "aVF"],
-  ["V1", "V2", "V3"],
-  ["V4", "V5", "V6"],
-];
-const idx = (name: string) => LEAD_NAMES.indexOf(name as (typeof LEAD_NAMES)[number]);
+export type ChestSet = "standard" | "right" | "posterior";
+/** Chest columns of the 3 × 4 layout for each chest-lead set (V1 and V2 are kept: V1 = V2R, V2 = V1R). */
+export const CHEST_SETS: Record<ChestSet, [string[], string[]]> = {
+  standard: [["V1", "V2", "V3"], ["V4", "V5", "V6"]],
+  right: [["V1", "V2", "V3R"], ["V4R", "V5R", "V6R"]],
+  posterior: [["V1", "V2", "V3"], ["V7", "V8", "V9"]],
+};
+const colsFor = (set: ChestSet = "standard"): string[][] => [["I", "II", "III"], ["aVR", "aVL", "aVF"], ...CHEST_SETS[set]];
+const idx = (name: string) => channelOf(name);
+export { ALL_LEAD_NAMES };
 
 export function layoutEcg(o: EcgViewOpts, t: number): EcgLayout {
   const padL = 6;
@@ -65,7 +70,7 @@ export function layoutEcg(o: EcgViewOpts, t: number): EcgLayout {
     const pageStart = Math.floor(t / pageDur) * pageDur;
     const strips: Strip[] = [];
     const LEFT = ["I", "II", "III", "aVR", "aVL", "aVF"];
-    const RIGHT = ["V1", "V2", "V3", "V4", "V5", "V6"];
+    const RIGHT = [...CHEST_SETS[o.chestSet ?? "standard"][0], ...CHEST_SETS[o.chestSet ?? "standard"][1]];
     for (let c = 0; c < 2; c++)
       (c === 0 ? LEFT : RIGHT).forEach((name, r) =>
         strips.push({
@@ -95,7 +100,7 @@ export function layoutEcg(o: EcgViewOpts, t: number): EcgLayout {
     const rowH = plotH / 4;
     for (let c = 0; c < 4; c++)
       for (let r = 0; r < 3; r++) {
-        const name = COLS[c][r];
+        const name = colsFor(o.chestSet)[c][r];
         strips.push({
           lead: idx(name),
           label: name,
@@ -185,11 +190,11 @@ export function drawEcg(
       if (extra?.overlay) {
         const ov = extra.overlay;
         const pts: number[] = [];
-        const n = ov.ecg.length / 15;
+        const n = ov.ecg.length / N_CHANNELS;
         for (let tt = s.t0; tt <= s.t1; tt += ov.dt) {
           const i = Math.round(tt / ov.dt);
           if (i < 0 || i >= n) continue;
-          pts.push(X(tt), s.base - ov.ecg[i * 15 + s.lead] * vScale);
+          pts.push(X(tt), s.base - ov.ecg[i * N_CHANNELS + s.lead] * vScale);
         }
         if (pts.length > 2) p.line(pts, col.traceB, 1.1);
       }
@@ -322,10 +327,10 @@ export class SvgPainter implements Painter {
 
 /** CSV of all 12 leads over [t0, t1] (ms, mV). */
 export function ecgCsv(data: SimData, t0: number, t1: number): string {
-  const rows = [["time_ms", ...LEAD_NAMES].join(",")];
+  const rows = [["time_ms", ...ALL_LEAD_NAMES].join(",")];
   for (let tt = Math.max(t0, data.tStart); tt <= Math.min(t1, data.tEnd); tt += data.dt) {
     const i = Math.round(tt / data.dt);
-    const vals = LEAD_NAMES.map((_, l) => data.sample(i, l).toFixed(5));
+    const vals = ALL_LEAD_NAMES.map((n) => data.sample(i, channelOf(n)).toFixed(5));
     rows.push([(i * data.dt).toFixed(1), ...vals].join(","));
   }
   return rows.join("\n");

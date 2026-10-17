@@ -32,13 +32,12 @@ export function ScenarioPanel() {
   const counts = SCENARIOS.reduce<Record<string, number>>((a, x) => ((a[x.status] = (a[x.status] ?? 0) + 1), a), {});
   const load = (live: boolean) => {
     if (!s.apply) return;
-    set({ scenarioId: s.id, explorerLeads: s.leads.length ? s.leads.slice(0, 3) : useStore.getState().explorerLeads });
+    set({ scenarioId: s.id, chestSet: s.chestSet ?? "standard", explorerLeads: s.leads.length ? s.leads.slice(0, 3).filter((l) => !/R$|V[789]/.test(l)) : useStore.getState().explorerLeads });
     if (live) applyLive(s.apply());
     else restart(s.apply());
   };
   return (
     <>
-      <EctopyQuick />
       <p className="note">
         Every runnable scenario is a parameter set for the same simulator — no stored waveforms. Status:{" "}
         {(Object.keys(STATUS_LABEL) as ScenarioStatus[])
@@ -68,6 +67,8 @@ export function ScenarioPanel() {
                 </button>
               ))}
             </div>
+            {/* the live premature-beat controls belong with the premature-beat scenarios */}
+            {g.startsWith("B ") && <EctopyQuick />}
           </div>
         ))}
       </div>

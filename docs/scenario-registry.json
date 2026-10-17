@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-16T20:22:48.009Z",
+  "generated": "2026-10-17T03:44:12.803Z",
   "statusClasses": [
     "validated",
     "incomplete",
@@ -709,7 +709,7 @@
       "complete": false,
       "runnable": true,
       "changes": "gKr × 0.5 in TP06; tissue: ventricular APD and gradients × 1.085, longitudinal CV × 1.",
-      "limitations": "Partial: ionic currents act in single cells only; tissue sees scaled APD/CV. No EADs/torsades; the M-cell layer is not represented in tissue, so transmural dispersion is under-represented.",
+      "limitations": "Partial: ionic currents act in single cells only; tissue sees scaled APD/CV. No EADs/torsades; the M-cell layer is not represented in tissue, so transmural dispersion is under-represented. The TP06 → tissue mapping under-predicts the QT effect of hERG block about threefold: dofetilide at a dose giving ≈ 51 % block prolonged QTc by 79 ms in man (see the clinically calibrated dofetilide scenario), whereas this mapping gives ≈ +25 ms.",
       "validation": "Automated test: \"TP06 mapping ikr50\" (tests/physiology/scenarios.test.ts)."
     },
     {
@@ -758,7 +758,7 @@
     },
     {
       "id": "hyperk",
-      "name": "Hyperkalaemia ([K⁺]o 8 mM)",
+      "name": "Hyperkalaemia (K⁺ 7.0 mmol/L)",
       "group": "E · Ionic/drug",
       "status": "partial",
       "modelClass": "reduced-order",
@@ -774,13 +774,35 @@
       },
       "complete": false,
       "runnable": true,
-      "changes": "Ko 5.4 → 8 mM in TP06; tissue: ventricular APD and gradients × 0.971, longitudinal CV × 0.657.",
-      "limitations": "Partial: ionic currents act in single cells only; tissue sees scaled APD/CV. Peaked T waves (faster repolarisation) are not transferred because tissue AP shape is fixed; atrial and AV-nodal effects not mapped.",
-      "validation": "Automated test: \"TP06 mapping ko8\" (tests/physiology/scenarios.test.ts)."
+      "changes": "Extracellular K⁺ 5.4 → 7.0 mmol/L. TP06: ventricular APD × 0.982, conduction × 0.802, AP amplitude × 0.901. Calibrated shape: phase-3 width × 0.54.",
+      "limitations": "Partial. The direction of every change comes from the TP06 cell model, but TP06 mapped onto the tissue changes the T wave very little (taller by ≈ 20 % at 8 mM, no U wave at 3 mM), so the T/U morphology is calibrated rather than emergent. In real patients T-wave features correlate weakly with serum K⁺ (r ≤ 0.2 in routine ECGs; hyperkalaemic changes in only ≈ 46 % at 6–9.3 mmol/L), so the tracing shows the textbook pattern, not a predicted dose–response. 5.4 mmol/L is TP06's reference value, at the upper end of the normal serum range. Sinus-node and AV-nodal effects are not modelled; ST depression in hypokalaemia is not reproduced.",
+      "validation": "Automated test: \"potassium hyperk\" (tests/physiology/scenarios.test.ts)."
+    },
+    {
+      "id": "hyperk-severe",
+      "name": "Hyperkalaemia, advanced (K⁺ 8.5 mmol/L)",
+      "group": "E · Ionic/drug",
+      "status": "partial",
+      "modelClass": "reduced-order",
+      "criteria": {
+        "mechanism": false,
+        "initialization": true,
+        "activationSequence": true,
+        "ecg": true,
+        "actionPotential": true,
+        "explanation": true,
+        "validation": true,
+        "ui": true
+      },
+      "complete": false,
+      "runnable": true,
+      "changes": "Extracellular K⁺ 5.4 → 8.5 mmol/L. TP06: ventricular APD × 0.965, conduction × 0.596, AP amplitude × 0.834. Calibrated shape: phase-3 width × 0.33.",
+      "limitations": "Partial. The direction of every change comes from the TP06 cell model, but TP06 mapped onto the tissue changes the T wave very little (taller by ≈ 20 % at 8 mM, no U wave at 3 mM), so the T/U morphology is calibrated rather than emergent. In real patients T-wave features correlate weakly with serum K⁺ (r ≤ 0.2 in routine ECGs; hyperkalaemic changes in only ≈ 46 % at 6–9.3 mmol/L), so the tracing shows the textbook pattern, not a predicted dose–response. 5.4 mmol/L is TP06's reference value, at the upper end of the normal serum range. Sinus-node and AV-nodal effects are not modelled; ST depression in hypokalaemia is not reproduced.",
+      "validation": "Automated test: \"potassium hyperk-severe\" (tests/physiology/scenarios.test.ts)."
     },
     {
       "id": "hypok",
-      "name": "Hypokalaemia ([K⁺]o 3 mM)",
+      "name": "Hypokalaemia (K⁺ 3.0 mmol/L)",
       "group": "E · Ionic/drug",
       "status": "partial",
       "modelClass": "reduced-order",
@@ -796,9 +818,9 @@
       },
       "complete": false,
       "runnable": true,
-      "changes": "Ko 5.4 → 3 mM in TP06; tissue: ventricular APD and gradients × 1.044, longitudinal CV × 1.111.",
-      "limitations": "Partial: ionic currents act in single cells only; tissue sees scaled APD/CV. U waves and T flattening are not representable; increased Na⁺ availability slightly speeds conduction in the mapping.",
-      "validation": "Automated test: \"TP06 mapping ko3\" (tests/physiology/scenarios.test.ts)."
+      "changes": "Extracellular K⁺ 5.4 → 3.0 mmol/L. TP06: ventricular APD × 1.044, conduction × 1.112, AP amplitude × 1.168. Calibrated shape: phase-3 width × 2.52, slow terminal component 45 % delayed by 30 % of the APD.",
+      "limitations": "Partial. The direction of every change comes from the TP06 cell model, but TP06 mapped onto the tissue changes the T wave very little (taller by ≈ 20 % at 8 mM, no U wave at 3 mM), so the T/U morphology is calibrated rather than emergent. In real patients T-wave features correlate weakly with serum K⁺ (r ≤ 0.2 in routine ECGs; hyperkalaemic changes in only ≈ 46 % at 6–9.3 mmol/L), so the tracing shows the textbook pattern, not a predicted dose–response. 5.4 mmol/L is TP06's reference value, at the upper end of the normal serum range. Sinus-node and AV-nodal effects are not modelled; ST depression in hypokalaemia is not reproduced.",
+      "validation": "Automated test: \"potassium hypok\" (tests/physiology/scenarios.test.ts)."
     },
     {
       "id": "na-block",
@@ -912,7 +934,7 @@
     },
     {
       "id": "drug-dofetilide",
-      "name": "Dofetilide 4× free Cmax",
+      "name": "Dofetilide — clinical dose",
       "group": "E · Ionic/drug",
       "status": "partial",
       "modelClass": "reduced-order",
@@ -928,13 +950,13 @@
       },
       "complete": false,
       "runnable": true,
-      "changes": "IKr × 0.19, ICaL × 1.00, INa × 1.00 in TP06; tissue APD × 1.151, ventricular CV × 1.",
-      "limitations": "Partial: block is treated as a fixed reduction in conductance. Use-dependence (rate-dependent block, prominent for sodium-channel blockers), state-dependent binding, trapping and metabolite activity are not modelled, and TP06 has no late sodium current. The torsade risk category shown (high) is clinical knowledge, not a model output: this model cannot predict whether a given drug causes torsades, only how the measured channel block changes repolarisation and conduction. Arrhythmia does not arise spontaneously from the drug in this model; combine it with the triggered-activity or polymorphic-VT scenarios to see the consequence.",
+      "changes": "500 µg single dose (peak plasma 2.7 ng/mL). Tissue, calibrated to the human study: ventricular APD +61.6 ms, phase-3 width × 1.59.",
+      "limitations": "Partial: the size of the effect is calibrated to one randomised study in 22 healthy volunteers (Johannesen et al. 2014) at a single dose, not predicted. TP06 alone (51 % hERG block at the free Cmax) would lengthen the APD by only ≈ 8 % (the gKr × 0.5 mapping gives × 1.085). The torsade risk category (high) is clinical knowledge, not a model output. Use-dependence, state-dependent binding and heart-rate effects are not modelled.",
       "validation": "Automated test: \"drug dofetilide\" (tests/physiology/scenarios.test.ts)."
     },
     {
       "id": "drug-quinidine",
-      "name": "Quinidine 1× free Cmax",
+      "name": "Quinidine — clinical dose",
       "group": "E · Ionic/drug",
       "status": "partial",
       "modelClass": "reduced-order",
@@ -950,8 +972,8 @@
       },
       "complete": false,
       "runnable": true,
-      "changes": "IKr × 0.26, ICaL × 1.00, INa × 1.00 in TP06; tissue APD × 1.134, ventricular CV × 1.",
-      "limitations": "Partial: block is treated as a fixed reduction in conductance. Use-dependence (rate-dependent block, prominent for sodium-channel blockers), state-dependent binding, trapping and metabolite activity are not modelled, and TP06 has no late sodium current. The torsade risk category shown (high) is clinical knowledge, not a model output: this model cannot predict whether a given drug causes torsades, only how the measured channel block changes repolarisation and conduction. Arrhythmia does not arise spontaneously from the drug in this model; combine it with the triggered-activity or polymorphic-VT scenarios to see the consequence.",
+      "changes": "400 mg quinidine sulfate single dose (peak plasma 1.8 µg/mL). Tissue, calibrated to the human study: ventricular APD +61.2 ms, phase-3 width × 1.7.",
+      "limitations": "Partial: the size of the effect is calibrated to one randomised study in 22 healthy volunteers (Johannesen et al. 2014) at a single dose, not predicted. TP06 alone predicts APD × 1.134 at the free Cmax. The torsade risk category (high) is clinical knowledge, not a model output. Use-dependence, state-dependent binding and heart-rate effects are not modelled.",
       "validation": "Automated test: \"drug quinidine\" (tests/physiology/scenarios.test.ts)."
     },
     {
@@ -978,7 +1000,7 @@
     },
     {
       "id": "drug-verapamil",
-      "name": "Verapamil 4× free Cmax",
+      "name": "Verapamil — clinical dose",
       "group": "E · Ionic/drug",
       "status": "partial",
       "modelClass": "reduced-order",
@@ -994,9 +1016,163 @@
       },
       "complete": false,
       "runnable": true,
-      "changes": "IKr × 0.80, ICaL × 0.36, INa × 1.00 in TP06; tissue APD × 0.73, ventricular CV × 1.014.",
-      "limitations": "Partial: block is treated as a fixed reduction in conductance. Use-dependence (rate-dependent block, prominent for sodium-channel blockers), state-dependent binding, trapping and metabolite activity are not modelled, and TP06 has no late sodium current. The torsade risk category shown (low) is clinical knowledge, not a model output: this model cannot predict whether a given drug causes torsades, only how the measured channel block changes repolarisation and conduction. Note that the shortening here illustrates why hERG affinity alone is a poor predictor of risk — balanced ICaL block offsets it.",
+      "changes": "120 mg single dose (peak plasma 130 ng/mL). Tissue, calibrated to the human study: ventricular APD +0.1 ms, phase-3 width × 1.092, AV-nodal conduction time +32 ms.",
+      "limitations": "Partial: the size of the effect is calibrated to one randomised study in 22 healthy volunteers (Johannesen et al. 2014) at a single dose, not predicted. TP06 alone predicts marked APD shortening (× 0.73 at 4× the free Cmax) from L-type Ca²⁺ block; in man QTc did not change significantly, while PR lengthened by 32 ms through AV-nodal Ca²⁺-channel block. The torsade risk category (low) is clinical knowledge, not a model output. Use-dependence, state-dependent binding and heart-rate effects are not modelled.",
       "validation": "Automated test: \"drug verapamil\" (tests/physiology/scenarios.test.ts)."
+    },
+    {
+      "id": "isch-lad-prox",
+      "name": "Acute ischaemia — Proximal LAD",
+      "group": "F · Ischaemia (culprit vessel)",
+      "status": "partial",
+      "modelClass": "reduced-order",
+      "criteria": {
+        "mechanism": false,
+        "initialization": true,
+        "activationSequence": true,
+        "ecg": true,
+        "actionPotential": true,
+        "explanation": true,
+        "validation": true,
+        "ui": true
+      },
+      "complete": false,
+      "runnable": true,
+      "changes": "Culprit Proximal LAD; grade 2 (APD × 0.895 and AP amplitude × 0.655 at the centre of the territory, soft border zone). Raise the grade to 3 in Parameters to add slow conduction in the zone (QRS distortion, tombstoning).",
+      "limitations": "Partial. Territories are the standard AHA vessel assignment on an idealised heart, not individual coronary anatomy. The size of the ST shift is calibrated to 1-minute balloon occlusion in man (LAD median 0.26 mV, Haeberlin et al. 2014); established STEMI is often larger. TP06 has no ATP-sensitive K⁺ current, hence the calibrated amplitude loss. Only the acute phase is modelled — no necrosis, Q waves or T-wave inversion, and no reperfusion. The model's precordial R-wave progression is poor (SCIENTIFIC_LIMITATIONS.md), which affects the baseline QRS but not the direction of the ST changes.",
+      "validation": "Automated test: \"ischaemia lad-prox\" (tests/physiology/ischaemia.test.ts)."
+    },
+    {
+      "id": "isch-lad-diag",
+      "name": "Acute ischaemia — Main diagonal (LAD)",
+      "group": "F · Ischaemia (culprit vessel)",
+      "status": "partial",
+      "modelClass": "reduced-order",
+      "criteria": {
+        "mechanism": false,
+        "initialization": true,
+        "activationSequence": true,
+        "ecg": true,
+        "actionPotential": true,
+        "explanation": true,
+        "validation": true,
+        "ui": true
+      },
+      "complete": false,
+      "runnable": true,
+      "changes": "Culprit Main diagonal (LAD); grade 2 (APD × 0.895 and AP amplitude × 0.655 at the centre of the territory, soft border zone). Raise the grade to 3 in Parameters to add slow conduction in the zone (QRS distortion, tombstoning).",
+      "limitations": "Partial. Territories are the standard AHA vessel assignment on an idealised heart, not individual coronary anatomy. The size of the ST shift is calibrated to 1-minute balloon occlusion in man (LAD median 0.26 mV, Haeberlin et al. 2014); established STEMI is often larger. TP06 has no ATP-sensitive K⁺ current, hence the calibrated amplitude loss. Only the acute phase is modelled — no necrosis, Q waves or T-wave inversion, and no reperfusion. The model's precordial R-wave progression is poor (SCIENTIFIC_LIMITATIONS.md), which affects the baseline QRS but not the direction of the ST changes.",
+      "validation": "Automated test: \"ischaemia lad-diag\" (tests/physiology/ischaemia.test.ts)."
+    },
+    {
+      "id": "isch-lad-mid",
+      "name": "Acute ischaemia — Mid-to-distal LAD (wrap-around)",
+      "group": "F · Ischaemia (culprit vessel)",
+      "status": "partial",
+      "modelClass": "reduced-order",
+      "criteria": {
+        "mechanism": false,
+        "initialization": true,
+        "activationSequence": true,
+        "ecg": true,
+        "actionPotential": true,
+        "explanation": true,
+        "validation": true,
+        "ui": true
+      },
+      "complete": false,
+      "runnable": true,
+      "changes": "Culprit Mid-to-distal LAD (wrap-around); grade 2 (APD × 0.895 and AP amplitude × 0.655 at the centre of the territory, soft border zone). Raise the grade to 3 in Parameters to add slow conduction in the zone (QRS distortion, tombstoning).",
+      "limitations": "Partial. Territories are the standard AHA vessel assignment on an idealised heart, not individual coronary anatomy. The size of the ST shift is calibrated to 1-minute balloon occlusion in man (LAD median 0.26 mV, Haeberlin et al. 2014); established STEMI is often larger. TP06 has no ATP-sensitive K⁺ current, hence the calibrated amplitude loss. Only the acute phase is modelled — no necrosis, Q waves or T-wave inversion, and no reperfusion. The model's precordial R-wave progression is poor (SCIENTIFIC_LIMITATIONS.md), which affects the baseline QRS but not the direction of the ST changes.",
+      "validation": "Automated test: \"ischaemia lad-mid\" (tests/physiology/ischaemia.test.ts)."
+    },
+    {
+      "id": "isch-lcx-nondominant",
+      "name": "Acute ischaemia — Non-dominant LCx",
+      "group": "F · Ischaemia (culprit vessel)",
+      "status": "partial",
+      "modelClass": "reduced-order",
+      "criteria": {
+        "mechanism": false,
+        "initialization": true,
+        "activationSequence": true,
+        "ecg": true,
+        "actionPotential": true,
+        "explanation": true,
+        "validation": true,
+        "ui": true
+      },
+      "complete": false,
+      "runnable": true,
+      "changes": "Culprit Non-dominant LCx; grade 2 (APD × 0.895 and AP amplitude × 0.655 at the centre of the territory, soft border zone). Raise the grade to 3 in Parameters to add slow conduction in the zone (QRS distortion, tombstoning).",
+      "limitations": "Partial. Territories are the standard AHA vessel assignment on an idealised heart, not individual coronary anatomy. The size of the ST shift is calibrated to 1-minute balloon occlusion in man (LAD median 0.26 mV, Haeberlin et al. 2014); established STEMI is often larger. TP06 has no ATP-sensitive K⁺ current, hence the calibrated amplitude loss. Only the acute phase is modelled — no necrosis, Q waves or T-wave inversion, and no reperfusion. The model's precordial R-wave progression is poor (SCIENTIFIC_LIMITATIONS.md), which affects the baseline QRS but not the direction of the ST changes.",
+      "validation": "Automated test: \"ischaemia lcx-nondominant\" (tests/physiology/ischaemia.test.ts)."
+    },
+    {
+      "id": "isch-lcx-dominant",
+      "name": "Acute ischaemia — Dominant LCx",
+      "group": "F · Ischaemia (culprit vessel)",
+      "status": "partial",
+      "modelClass": "reduced-order",
+      "criteria": {
+        "mechanism": false,
+        "initialization": true,
+        "activationSequence": true,
+        "ecg": true,
+        "actionPotential": true,
+        "explanation": true,
+        "validation": true,
+        "ui": true
+      },
+      "complete": false,
+      "runnable": true,
+      "changes": "Culprit Dominant LCx; grade 2 (APD × 0.895 and AP amplitude × 0.655 at the centre of the territory, soft border zone). Raise the grade to 3 in Parameters to add slow conduction in the zone (QRS distortion, tombstoning).",
+      "limitations": "Partial. Territories are the standard AHA vessel assignment on an idealised heart, not individual coronary anatomy. The size of the ST shift is calibrated to 1-minute balloon occlusion in man (LAD median 0.26 mV, Haeberlin et al. 2014); established STEMI is often larger. TP06 has no ATP-sensitive K⁺ current, hence the calibrated amplitude loss. Only the acute phase is modelled — no necrosis, Q waves or T-wave inversion, and no reperfusion. The model's precordial R-wave progression is poor (SCIENTIFIC_LIMITATIONS.md), which affects the baseline QRS but not the direction of the ST changes.",
+      "validation": "Automated test: \"ischaemia lcx-dominant\" (tests/physiology/ischaemia.test.ts)."
+    },
+    {
+      "id": "isch-rca-prox",
+      "name": "Acute ischaemia — Proximal RCA (with RV branches)",
+      "group": "F · Ischaemia (culprit vessel)",
+      "status": "partial",
+      "modelClass": "reduced-order",
+      "criteria": {
+        "mechanism": false,
+        "initialization": true,
+        "activationSequence": true,
+        "ecg": true,
+        "actionPotential": true,
+        "explanation": true,
+        "validation": true,
+        "ui": true
+      },
+      "complete": false,
+      "runnable": true,
+      "changes": "Culprit Proximal RCA (with RV branches); grade 2 (APD × 0.895 and AP amplitude × 0.655 at the centre of the territory, soft border zone). Raise the grade to 3 in Parameters to add slow conduction in the zone (QRS distortion, tombstoning).",
+      "limitations": "Partial. Territories are the standard AHA vessel assignment on an idealised heart, not individual coronary anatomy. The size of the ST shift is calibrated to 1-minute balloon occlusion in man (LAD median 0.26 mV, Haeberlin et al. 2014); established STEMI is often larger. TP06 has no ATP-sensitive K⁺ current, hence the calibrated amplitude loss. Only the acute phase is modelled — no necrosis, Q waves or T-wave inversion, and no reperfusion. The model's precordial R-wave progression is poor (SCIENTIFIC_LIMITATIONS.md), which affects the baseline QRS but not the direction of the ST changes.",
+      "validation": "Automated test: \"ischaemia rca-prox\" (tests/physiology/ischaemia.test.ts)."
+    },
+    {
+      "id": "isch-rca-distal",
+      "name": "Acute ischaemia — Distal RCA",
+      "group": "F · Ischaemia (culprit vessel)",
+      "status": "partial",
+      "modelClass": "reduced-order",
+      "criteria": {
+        "mechanism": false,
+        "initialization": true,
+        "activationSequence": true,
+        "ecg": true,
+        "actionPotential": true,
+        "explanation": true,
+        "validation": true,
+        "ui": true
+      },
+      "complete": false,
+      "runnable": true,
+      "changes": "Culprit Distal RCA; grade 2 (APD × 0.895 and AP amplitude × 0.655 at the centre of the territory, soft border zone). Raise the grade to 3 in Parameters to add slow conduction in the zone (QRS distortion, tombstoning).",
+      "limitations": "Partial. Territories are the standard AHA vessel assignment on an idealised heart, not individual coronary anatomy. The size of the ST shift is calibrated to 1-minute balloon occlusion in man (LAD median 0.26 mV, Haeberlin et al. 2014); established STEMI is often larger. TP06 has no ATP-sensitive K⁺ current, hence the calibrated amplitude loss. Only the acute phase is modelled — no necrosis, Q waves or T-wave inversion, and no reperfusion. The model's precordial R-wave progression is poor (SCIENTIFIC_LIMITATIONS.md), which affects the baseline QRS but not the direction of the ST changes.",
+      "validation": "Automated test: \"ischaemia rca-distal\" (tests/physiology/ischaemia.test.ts)."
     }
   ]
 }

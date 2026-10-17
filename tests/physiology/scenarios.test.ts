@@ -38,6 +38,7 @@ const nsrCycle = () => {
   return v[3].tFirstVent - v[2].tFirstVent;
 };
 const truthQrs = (w: WaveInfo) => w.tLastVent - w.tFirstVent;
+
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
 describe("Group A — brady/conduction scenarios", () => {
@@ -487,27 +488,125 @@ describe("Group E — electrolytes, triggered activity and drugs", () => {
     expect(qt("ead-dad")).toBeGreaterThan(qt("nsr") + 30);
   });
 
+  // Global repolarisation measures on the heart-vector magnitude, like Johannesen et al. 2014.
+  const repol = (id: string) => {
+    const r = sc(id, 7000);
+    const dt = r.sim.dt;
+    const vm = (t: number) => {
+      const i = Math.round(t / dt) * N_CHANNELS;
+      return Math.hypot(r.out.ecg[i + 12], r.out.ecg[i + 13], r.out.ecg[i + 14]);
+    };
+    const xs = r.beats.slice(1, -1).map((b) => {
+      const J = b.qrsOff;
+      const te = b.qrsOn + b.qt!;
+      let tp = J + 40;
+      let best = -1;
+      for (let t = J + 40; t < te; t += dt) if (vm(t) > best) [best, tp] = [vm(t), t];
+      return { qt: b.qt!, jtp: tp - J, tpte: te - tp, pr: b.pr! };
+    });
+    const m = (k: "qt" | "jtp" | "tpte" | "pr") => median(xs.map((x) => x[k]));
+    return { qt: m("qt"), jtp: m("jtp"), tpte: m("tpte"), pr: m("pr") };
+  };
+  // 95 % CIs of the placebo-corrected peak effects (Johannesen et al. 2014, Clin Pharmacol Ther 96:549)
+  const within = (x: number, lo: number, hi: number, slack = 3) => {
+    expect(x).toBeGreaterThanOrEqual(lo - slack);
+    expect(x).toBeLessThanOrEqual(hi + slack);
+  };
   it("drug dofetilide", () => {
-    // Selective IKr block: QT lengthens, QRS unchanged.
-    expect(qt("drug-dofetilide")).toBeGreaterThan(qt("nsr") + 25);
+    const b = repol("nsr");
+    const d = repol("drug-dofetilide");
+    within(d.qt - b.qt, 72.2, 86.3);
+    within(d.jtp - b.jtp, 32.8, 46.2);
+    within(d.tpte - b.tpte, 33.0, 46.9);
     expect(Math.abs(qrs("drug-dofetilide") - qrs("nsr"))).toBeLessThanOrEqual(4);
   });
 
   it("drug quinidine", () => {
-    expect(qt("drug-quinidine")).toBeGreaterThan(qt("nsr") + 20);
+    const b = repol("nsr");
+    const d = repol("drug-quinidine");
+    within(d.qt - b.qt, 70.9, 85.2);
+    within(d.jtp - b.jtp, 22.4, 35.9);
+    within(d.tpte - b.tpte, 42.8, 56.8);
   });
 
   it("drug flecainide", () => {
-    // Class Ic: QRS widens through reduced conduction velocity.
+    // Class Ic: QRS widens through reduced conduction velocity (TP06 mapping; no matched human study here).
     expect(qrs("drug-flecainide")).toBeGreaterThan(qrs("nsr") + 4);
   });
 
   it("drug verapamil", () => {
-    // Balanced ICaL block outweighs hERG block: QT SHORTENS despite appreciable IKr affinity.
-    expect(qt("drug-verapamil")).toBeLessThan(qt("nsr") - 40);
+    // In man: no significant QTc, J–Tpeak or Tpeak–Tend change; PR +32.1 ms (26.7–37.4).
+    const b = repol("nsr");
+    const d = repol("drug-verapamil");
+    within(d.qt - b.qt, -1.8, 12.2);
+    within(d.jtp - b.jtp, -9.0, 4.3);
+    within(d.tpte - b.tpte, -2.2, 11.7);
+    within(d.pr - b.pr, 26.7, 37.4);
     expect(Math.abs(qrs("drug-verapamil") - qrs("nsr"))).toBeLessThanOrEqual(4);
   });
 
+  // ---- potassium -------------------------------------------------------------------------------
+  const lead = (id: string, name: string) => {
+    const r = sc(id);
+    const ch = ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"].indexOf(name);
+    return { r, x: (t: number) => r.out.ecg[Math.round(t / r.sim.dt) * N_CHANNELS + ch] };
+  };
+  /** T (and U) analysis of one beat in one lead: peaks after the QRS, T amplitude and TS/A (Corsi 2017). */
+  const tWave = (id: string, name: string) => {
+    const { r, x } = lead(id, name);
+    const w = vent(r.waves).filter((v) => v.tFirstVent > 2000)[1];
+    const nextV = vent(r.waves).find((v) => v.tFirstVent > w.tFirstVent + 200)!.tFirstVent;
+    const base = x(w.tFirstVent - 15);
+    const ys: number[] = [];
+    for (let t = w.tLastVent + 30; t < Math.min(nextV - 260, w.tFirstVent + 650); t += r.sim.dt) ys.push(x(t) - base); // stop before the next P wave
+    const peaks: { i: number; y: number }[] = [];
+    for (let i = 2; i < ys.length - 2; i++) if (ys[i] > ys[i - 1] && ys[i] >= ys[i + 1] && ys[i] > 0.03) peaks.push({ i, y: ys[i] });
+    const top = ys.indexOf(Math.max(...ys));
+    let slope = 0;
+    for (let i = top; i < ys.length - 1; i++) slope = Math.max(slope, (ys[i] - ys[i + 1]) / r.sim.dt);
+    let pAmp = 0;
+    const pEnd = w.tFirstAtrial + 0.8 * (w.tFirstVent - w.tFirstAtrial); // P wave of this beat, before the QRS
+    const pBase = x(w.tFirstAtrial - 10);
+    for (let t = w.tFirstAtrial; t < pEnd; t += r.sim.dt) pAmp = Math.max(pAmp, x(t) - pBase);
+    return { amp: ys[top], tsa: (slope * 1000) / ys[top], peaks, pAmp, ys, dt: r.sim.dt };
+  };
+  const pr = (id: string) => median(sc(id).beats.map((b) => b.pr).filter((x): x is number => x !== null));
+
+  it("potassium hyperk", () => {
+    // Marriott ch. 10: peaked T first, then PR and QRS prolongation and P flattening.
+    const n = ["V2", "V3", "V4"].map((l) => tWave("nsr", l));
+    const h = ["V2", "V3", "V4"].map((l) => tWave("hyperk", l));
+    for (let k = 0; k < 3; k++) {
+      expect(h[k].amp).toBeGreaterThan(1.25 * n[k].amp); // taller
+      expect(h[k].tsa).toBeGreaterThan(1.1 * n[k].tsa); // narrower: T slope/amplitude ratio rises (Corsi et al. 2017)
+    }
+    expect(pr("hyperk")).toBeGreaterThan(pr("nsr") + 10);
+    expect(qrs("hyperk")).toBeGreaterThan(qrs("nsr") + 10);
+    expect(tWave("hyperk", "II").pAmp).toBeLessThan(tWave("nsr", "II").pAmp);
+  });
+
+  it("potassium hyperk-severe", () => {
+    expect(pr("hyperk-severe")).toBeGreaterThan(pr("nsr") + 40);
+    expect(qrs("hyperk-severe")).toBeGreaterThan(qrs("nsr") + 40);
+    expect(tWave("hyperk-severe", "II").pAmp).toBeLessThan(0.9 * tWave("nsr", "II").pAmp); // flatter P (TP06: −16 % amplitude; P loss is not reproduced)
+    expect(tWave("hyperk-severe", "V3").amp).toBeGreaterThan(1.5 * tWave("nsr", "V3").amp);
+  });
+
+  it("potassium hypok", () => {
+    // Marriott ch. 10: "the reversal in the relative amplitudes of the T and U waves is the most
+    // characteristic change": two positive waves after the QRS, the later (U) larger than the T.
+    for (const l of ["V2", "V3"]) {
+      const t = tWave("hypok", l);
+      expect(t.peaks.length, l).toBeGreaterThanOrEqual(1);
+      const last = t.peaks[t.peaks.length - 1];
+      // everything more than 100 ms before the U peak (the flattened T) is lower than the U wave
+      const earlyMax = Math.max(0, ...t.ys.slice(0, Math.max(1, last.i - Math.round(100 / t.dt))));
+      expect(last.y, l).toBeGreaterThan(earlyMax);
+      expect(last.y, l).toBeGreaterThan(0.1);
+      expect(tWave("hypok", l).amp).toBeGreaterThan(0); // not inverted
+    }
+    expect(tWave("hypok", "II").pAmp).toBeGreaterThan(tWave("nsr", "II").pAmp); // larger P
+  });
   it("drug block fractions match the published IC50 values", () => {
     // Hill equation, h = 1, at the stated multiple of free Cmax (Crumb et al. 2016 Table 1 and 2).
     const dof = drugMods(DRUG_BY_ID.dofetilide, 1);

@@ -19,7 +19,7 @@ import { cloneParams, isAtrialSite, type SimParams } from "./params";
 import { derive, type Derived } from "./derive";
 import { EV_AUTO, EV_EXCITE, EventQueue, type QueueSnapshot } from "./eventQueue";
 import { Rng } from "./rng";
-import { DYNAMIC_RESTITUTION, SHAPES, apdDynamic, repolMidpoint, steadyStateScale, ventricularNotchScale, workingA } from "../cellular/actionPotential";
+import { DYNAMIC_RESTITUTION, shapesFor, type Shape, apdDynamic, repolMidpoint, steadyStateScale, ventricularNotchScale, workingA } from "../cellular/actionPotential";
 import { N_CHANNELS, N_COLS, columnsToChannels, computeLeadField } from "../ecg-forward/leadField";
 
 export type WaveOrigin = "sinus" | "junctional" | "ventricular-escape" | "ectopic" | "retrograde" | "reentry";
@@ -187,6 +187,8 @@ export class Simulator {
 
   private el = new Float64Array(N_COLS);
   private leadTmp = new Float32Array(N_CHANNELS);
+  /** AP waveform shapes for the current parameters (potassium-dependent). */
+  private shapes: Record<number, Shape> = {};
   private notchScale: Float32Array;
   private ev = { time: 0, node: 0, src: 0, wave: 0, kind: 0, stamp: 0 };
 
@@ -195,6 +197,7 @@ export class Simulator {
     this.dt = dt;
     this.params = cloneParams(params);
     this.d = derive(model, this.params);
+    this.shapes = shapesFor(this.params);
     this.W = W ?? computeLeadField(model);
     const n = model.n;
     this.lastAct = new Float64Array(n);
@@ -290,6 +293,7 @@ export class Simulator {
     const oldParams = this.params;
     this.params = cloneParams(p);
     this.d = derive(this.model, this.params);
+    this.shapes = shapesFor(this.params);
     const m = this.model;
     // Re-arm pacemakers whose cycle length changed (pending automaticity events become stale).
     const rearm = (node: number, oldCl: number, newCl: number) => {
@@ -508,7 +512,7 @@ export class Simulator {
     this.apd[node] = apd;
     this.erp[node] = apd * d.erpRatio[node];
     this.lastWave[node] = wave;
-    const s = SHAPES[ct];
+    const s = this.shapes[ct];
     if (s) this.t50[node] = repolMidpoint(s, apd);
     if (!this.inActive[node] && (ct === CT.VENTRICULAR || ct === CT.ATRIAL)) {
       this.inActive[node] = 1;
@@ -698,14 +702,14 @@ export class Simulator {
       const i = this.active[a];
       const tau = T - this.lastAct[i];
       const apd = this.apd[i];
-      const s = SHAPES[m.cellType[i]];
-      if (tau > apd + 6 * s.repolWidth * apd) {
+      const s = this.shapes[m.cellType[i]];
+      if (tau > apd + (6 * Math.max(s.repolWidth, s.tailWidth ?? 0) + (s.tailDelay ?? 0)) * apd) {
         this.inActive[i] = 0; // returned to rest: drop from the active set
         continue;
       }
       this.active[k++] = i;
       if (tau < 0) continue;
-      const x = workingA(s, tau, apd, this.t50[i], this.notchScale[i]) * (s.vPeak - s.vRest);
+      const x = workingA(s, tau, apd, this.t50[i], this.notchScale[i]) * (s.vPeak - s.vRest) * this.d.apAmp[i];
       if (x === 0) continue;
       const o = i * N_COLS;
       for (let e = 0; e < N_COLS; e++) el[e] += W[o + e] * x;
@@ -791,6 +795,7 @@ export class Simulator {
     this.rng.state = s.rng;
     this.params = cloneParams(s.params);
     this.d = derive(this.model, this.params);
+    this.shapes = shapesFor(this.params);
     this.waves = new Map(s.waves.map(([k, v]) => [k, { ...v }]));
     this.recCount = s.recCount;
     this.sampleCount = s.sampleCount;

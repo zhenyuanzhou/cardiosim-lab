@@ -16,7 +16,8 @@
  * stored anywhere. `apply` always starts from DEFAULT_PARAMS so scenarios are reproducible.
  */
 import { DEFAULT_PARAMS, cloneParams, type SimParams } from "../core/params";
-import { CALCIUM_REFERENCE, calciumApdShift } from "../cellular/electrolytes";
+import { CALCIUM_REFERENCE, calciumApdShift, potassiumEffect } from "../cellular/electrolytes";
+import { CULPRIT_LABELS, CULPRIT_TERRITORY, type Culprit } from "../core/ischaemia";
 import { DRUG_BY_ID, drugMods } from "../cellular/drugs";
 
 export type ScenarioStatus = "validated" | "incomplete" | "partial" | "placeholder" | "unsupported";
@@ -37,7 +38,7 @@ export interface Criteria {
 export interface Scenario {
   id: string;
   name: string;
-  group: "Baseline" | "A · Brady/conduction" | "B · Premature beats" | "C · Supraventricular" | "D · Ventricular" | "E · Ionic/drug" | "Conduction (BBB)";
+  group: "Baseline" | "A · Brady/conduction" | "B · Premature beats" | "C · Supraventricular" | "D · Ventricular" | "E · Ionic/drug" | "F · Ischaemia (culprit vessel)" | "Conduction (BBB)";
   status: ScenarioStatus;
   modelClass: ModelClass;
   criteria: Criteria;
@@ -52,6 +53,8 @@ export interface Scenario {
   validation: string;
   /** Suggested leads to inspect. */
   leads: string[];
+  /** Chest leads to show in the 12-lead layout when the scenario is loaded (default: standard). */
+  chestSet?: "standard" | "right" | "posterior";
   apply?: () => SimParams;
 }
 
@@ -84,8 +87,6 @@ export const TP06_MAPPED: Record<string, { mods: Record<string, number>; apdScal
   ikr50: { mods: { gKr: 0.5 }, apdScale: 1.085, cvScale: 1.0 },
   ikr90: { mods: { gKr: 0.1 }, apdScale: 1.173, cvScale: 1.0 },
   ikr200: { mods: { gKr: 2 }, apdScale: 0.872, cvScale: 1.0 },
-  ko8: { mods: { Ko: 8 }, apdScale: 0.971, cvScale: 0.657 },
-  ko3: { mods: { Ko: 3 }, apdScale: 1.044, cvScale: 1.111 },
   na50: { mods: { gNa: 0.5 }, apdScale: 1.004, cvScale: 0.785 },
   cal50: { mods: { gCaL: 0.5 }, apdScale: 0.771, cvScale: 1.011 },
 };
@@ -117,6 +118,156 @@ function ionic(id: string, name: string, change: string, key: string, mechanism:
   };
 }
 
+
+/**
+ * Potassium disorders. APD, conduction (atria, His–Purkinje, ventricles) and AP amplitude follow the
+ * TP06 cell model; the AP shape that inscribes the T and U waves is calibrated (cellular/electrolytes.ts).
+ */
+function potassium(id: string, name: string, k: number, ecg: string): Scenario {
+  const e = potassiumEffect(k);
+  const hyper = k > 5.4;
+  return {
+    id,
+    name,
+    group: "E · Ionic/drug",
+    status: "partial",
+    modelClass: "reduced-order",
+    criteria: { ...ALL, mechanism: false },
+    mechanism: hyper
+      ? `Raised extracellular K⁺ depolarises the resting membrane (TP06: −85.8 → ${e.vRest.toFixed(1)} mV), inactivating Na⁺ channels, so the upstroke is smaller and conduction slower everywhere — atria (flat P), His–Purkinje system (long PR) and ventricles (wide QRS). The K⁺ conductances rise with [K⁺]o, so repolarisation is faster and the APD slightly shorter: the T wave becomes tall and narrow.`
+      : `Low extracellular K⁺ hyperpolarises the membrane (TP06: −85.8 → ${e.vRest.toFixed(1)} mV) and lowers the K⁺ conductances, so phase 3 is slower and its terminal part is delayed. Small voltage differences between these late AP tails inscribe the U wave (Ritsema van Eck et al. 2005), which becomes larger than the flattened T wave.`,
+    structures: "Atrial and ventricular myocardium, His–Purkinje system.",
+    changes: `Extracellular K⁺ 5.4 → ${k.toFixed(1)} mmol/L. TP06: ventricular APD × ${e.apdScale.toFixed(3)}, conduction × ${e.cvScale.toFixed(3)}, AP amplitude × ${e.ampScale.toFixed(3)}. Calibrated shape: phase-3 width × ${e.repolWidthScale.toFixed(2)}${e.tailFrac > 0 ? `, slow terminal component ${Math.round(100 * e.tailFrac)} % delayed by ${Math.round(100 * e.tailDelay)} % of the APD` : ""}.`,
+    activation: e.cvScale < 0.95 ? "Slower activation of atria, conduction system and ventricles." : "Activation sequence unchanged (slightly faster conduction).",
+    ecg,
+    initiation: "Immediate.",
+    limitations:
+      "Partial. The direction of every change comes from the TP06 cell model, but TP06 mapped onto the tissue changes the T wave very little (taller by ≈ 20 % at 8 mM, no U wave at 3 mM), so the T/U morphology is calibrated rather than emergent. In real patients T-wave features correlate weakly with serum K⁺ (r ≤ 0.2 in routine ECGs; hyperkalaemic changes in only ≈ 46 % at 6–9.3 mmol/L), so the tracing shows the textbook pattern, not a predicted dose–response. 5.4 mmol/L is TP06's reference value, at the upper end of the normal serum range. Sinus-node and AV-nodal effects are not modelled; ST depression in hypokalaemia is not reproduced.",
+    validation: T(`potassium ${id}`),
+    leads: ["II", "V2", "V3", "V5"],
+    apply: P((p) => (p.electrolytes.serumPotassium = k)),
+  };
+}
+
+/**
+ * Acute transmural ischaemia from a culprit coronary lesion (core/ischaemia.ts): the seven culprit
+ * risk areas of Marriott Table 8.2, AP changes from TP06 under phase-1a ischaemia (amplitude loss
+ * calibrated to human balloon-occlusion ST data).
+ */
+const ISCH_ECG: Record<Exclude<Culprit, "none">, { st: string; leads: string[]; chest?: "right" | "posterior"; note?: string }> = {
+  "lad-prox": { st: "ST elevation V1–V4, I, aVL; reciprocal depression III, aVF.", leads: ["V2", "V3", "V4", "aVL", "III"] },
+  "lad-diag": { st: "ST elevation I, aVL with minimal change in V1–V3; reciprocal depression III, aVF (high lateral).", leads: ["I", "aVL", "III", "V2"] },
+  "lad-mid": { st: "ST elevation V3–V6, I, II, aVF (wrap-around apex); depression in aVR.", leads: ["V4", "V5", "II", "aVR"] },
+  "lcx-nondominant": { st: "ST depression V1–V4 (the mirror image of posterolateral elevation) with little inferior change; ST elevation in posterior leads V7–V9.", leads: ["V2", "V3", "V7", "V8"], chest: "posterior", note: "The circumflex territory lies far from all 12 standard electrodes, so its ischaemia is seen as anterior ST depression; the posterior leads show the elevation directly." },
+  "lcx-dominant": { st: "ST elevation II, III, aVF with ST depression V1–V4.", leads: ["II", "III", "aVF", "V3"], chest: "posterior" },
+  "rca-prox": { st: "ST elevation II, III, aVF with III > II and reciprocal depression in I and aVL; ST elevation in V1 and in the right-sided leads V3R–V4R (right-ventricular involvement).", leads: ["III", "aVL", "V1", "V4R"], chest: "right" },
+  "rca-distal": { st: "ST elevation II, III, aVF with depression in I and aVL; less right-sided elevation than a proximal lesion (no RV branches).", leads: ["III", "aVL", "V4R", "V2"], chest: "right" },
+};
+function ischaemiaScenario(culprit: Exclude<Culprit, "none">): Scenario {
+  const t = CULPRIT_TERRITORY[culprit];
+  const e = ISCH_ECG[culprit];
+  return {
+    id: `isch-${culprit}`,
+    name: `Acute ischaemia — ${CULPRIT_LABELS[culprit]}`,
+    group: "F · Ischaemia (culprit vessel)",
+    status: "partial",
+    modelClass: "reduced-order",
+    criteria: { ...ALL, mechanism: false },
+    mechanism:
+      "Occlusion of the artery makes its territory acutely ischaemic through the full wall thickness. The ischaemic myocytes depolarise (TP06 under phase-1a conditions: rest −86 → −70 mV), lose AP amplitude and shorten their APD. During the plateau the ischaemic zone therefore sits at a lower potential than healthy muscle, and the injury current points toward it: leads facing the territory show ST elevation, leads opposite show reciprocal ST depression. The shorter APD makes the T wave taller (hyperacute T).",
+    structures: `AHA segments ${t.segments.join(", ")}${t.rv ? " and the right-ventricular free wall" : ""}.`,
+    changes: `Culprit ${CULPRIT_LABELS[culprit]}; grade 2 (APD × 0.895 and AP amplitude × 0.655 at the centre of the territory, soft border zone). Raise the grade to 3 in Parameters to add slow conduction in the zone (QRS distortion, tombstoning).`,
+    activation: "Unchanged at grade 2; at grade 3 the ischaemic zone activates late.",
+    ecg: e.st + (e.note ? ` ${e.note}` : ""),
+    initiation: "Immediate (the state after about one minute of occlusion).",
+    limitations:
+      "Partial. Territories are the standard AHA vessel assignment on an idealised heart, not individual coronary anatomy. The size of the ST shift is calibrated to 1-minute balloon occlusion in man (LAD median 0.26 mV, Haeberlin et al. 2014); established STEMI is often larger. TP06 has no ATP-sensitive K⁺ current, hence the calibrated amplitude loss. Only the acute phase is modelled — no necrosis, Q waves or T-wave inversion, and no reperfusion. The model's precordial R-wave progression is poor (SCIENTIFIC_LIMITATIONS.md), which affects the baseline QRS but not the direction of the ST changes.",
+    validation: `Automated test: "ischaemia ${culprit}" (tests/physiology/ischaemia.test.ts).`,
+    leads: e.leads,
+    chestSet: e.chest,
+    apply: P((p) => (p.ischaemia = { culprit, grade: 2 })),
+  };
+}
+
+/**
+ * Drugs with a randomised human ECG study at a clinical dose: Johannesen et al., Clin Pharmacol Ther
+ * 2014;96:549 (FDA, n = 22, placebo-corrected peak effects; doi:10.1038/clpt.2014.155). The tissue
+ * effect is calibrated to the study's ΔΔQTc, ΔΔJ–Tpeak (early repolarisation), ΔΔTpeak–Tend (late
+ * repolarisation) and ΔΔPR, measured here on the vector magnitude of the heart vector like the study's
+ * global measures (scripts/dev/drug-cal*.ts): a uniform APD shift (early + late), a slower phase 3
+ * (late repolarisation, the cellular effect of IKr block) and, for verapamil, slower AV-nodal conduction.
+ * The TP06 cell model is not used for the size of the effect because, mapped to the tissue, it
+ * under-predicts hERG-block QT prolongation about threefold and makes verapamil shorten QT markedly —
+ * neither seen in man.
+ */
+export const DRUG_CLINICAL: Record<string, { dose: string; apdShift: number; phase3: number; ahShift: number; target: { qtc: number; jtp: number; tpte: number; pr: number }; model: { qt: number; jtp: number; tpte: number; pr: number }; tp06: string }> = {
+  dofetilide: {
+    dose: "500 µg single dose (peak plasma 2.7 ng/mL)",
+    apdShift: 61.6,
+    phase3: 1.59,
+    ahShift: 0,
+    target: { qtc: 79.3, jtp: 39.5, tpte: 40.0, pr: 0 },
+    model: { qt: 78, jtp: 34, tpte: 44, pr: 0 },
+    tp06: "TP06 alone (51 % hERG block at the free Cmax) would lengthen the APD by only ≈ 8 % (the gKr × 0.5 mapping gives × 1.085).",
+  },
+  quinidine: {
+    dose: "400 mg quinidine sulfate single dose (peak plasma 1.8 µg/mL)",
+    apdShift: 61.2,
+    phase3: 1.7,
+    ahShift: 0,
+    target: { qtc: 78.1, jtp: 29.1, tpte: 49.8, pr: 5.1 },
+    model: { qt: 80, jtp: 30, tpte: 50, pr: 0 },
+    tp06: "TP06 alone predicts APD × 1.134 at the free Cmax.",
+  },
+  verapamil: {
+    dose: "120 mg single dose (peak plasma 130 ng/mL)",
+    apdShift: 0.1,
+    phase3: 1.092,
+    ahShift: 32,
+    target: { qtc: 5.2, jtp: -2.4, tpte: 4.8, pr: 32.1 },
+    model: { qt: 4, jtp: 0, tpte: 4, pr: 32 },
+    tp06: "TP06 alone predicts marked APD shortening (× 0.73 at 4× the free Cmax) from L-type Ca²⁺ block; in man QTc did not change significantly, while PR lengthened by 32 ms through AV-nodal Ca²⁺-channel block.",
+  },
+};
+function clinicalDrug(id: string, drugId: string): Scenario {
+  const d = DRUG_BY_ID[drugId];
+  const c = DRUG_CLINICAL[drugId];
+  const mods = drugMods(d, 1);
+  const pct = (g: number) => `${Math.round((1 - g) * 100)} %`;
+  const f = (x: number) => (x > 0 ? `+${x}` : `${x}`);
+  return {
+    id,
+    name: `${d.name} — clinical dose`,
+    group: "E · Ionic/drug",
+    status: "partial",
+    modelClass: "reduced-order",
+    criteria: { ...ALL, mechanism: false },
+    mechanism:
+      `At its free therapeutic concentration ${d.name.toLowerCase()} blocks IKr by ${pct(mods.gKr)}, ICaL by ${pct(mods.gCaL)} and peak INa by ${pct(mods.gNa)} (CiPA IC50 values, Crumb et al. 2016; Hill coefficient 1 assumed). ` +
+      (drugId === "verapamil"
+        ? "Its hERG block is offset by L-type Ca²⁺ block, so ventricular repolarisation barely changes; the clinically visible effect is slower AV-nodal conduction (a Ca²⁺-dependent tissue)."
+        : "hERG (IKr) block slows phase 3, lengthening both early (J–Tpeak) and late (Tpeak–Tend) repolarisation; the inward-current block of quinidine shortens early repolarisation relative to late.") +
+      ` ${d.note}`,
+    structures: drugId === "verapamil" ? "AV node; ventricular myocardium." : "Ventricular myocardium (repolarisation).",
+    changes: `${c.dose}. Tissue, calibrated to the human study: ventricular APD ${f(c.apdShift)} ms, phase-3 width × ${c.phase3}${c.ahShift ? `, AV-nodal conduction time +${c.ahShift} ms` : ""}.`,
+    activation: c.ahShift ? "Longer AV-nodal delay; ventricular activation unchanged." : "Activation sequence and timing unchanged.",
+    ecg:
+      `Human study (placebo-corrected): QTc ${f(c.target.qtc)} ms, J–Tpeak ${f(c.target.jtp)} ms, Tpeak–Tend ${f(c.target.tpte)} ms, PR ${f(c.target.pr)} ms. ` +
+      `This model: QT ${f(c.model.qt)}, J–Tpeak ${f(c.model.jtp)}, Tpeak–Tend ${f(c.model.tpte)}, PR ${f(c.model.pr)} ms.` +
+      (drugId !== "verapamil" ? " The T wave is broader and lower; the study reported T-wave notching, which is not reproduced." : ""),
+    initiation: "Immediate.",
+    limitations:
+      `Partial: the size of the effect is calibrated to one randomised study in 22 healthy volunteers (Johannesen et al. 2014) at a single dose, not predicted. ${c.tp06} ` +
+      `The torsade risk category (${d.tdpRisk}) is clinical knowledge, not a model output. Use-dependence, state-dependent binding and heart-rate effects are not modelled.`,
+    validation: T(`drug ${drugId}`),
+    leads: ["II", "V2", "V5"],
+    apply: P((p) => {
+      p.ventricles.apd = Math.round(p.ventricles.apd + c.apdShift);
+      p.ventricles.phase3Scale = c.phase3;
+      p.avNode.ahMin += c.ahShift;
+    }),
+  };
+}
 /**
  * Calcium disorders. These deliberately do NOT come from the ionic cell model: TP06 reproduces the
  * opposite direction of the APD–[Ca²⁺]o relationship (measured in this implementation and shown in
@@ -851,19 +1002,19 @@ export const SCENARIOS: Scenario[] = [
   // ---------------------------------------------------------------- Group E
   ionic("ikr-50", "IKr inhibition 50 % (long-QT pattern)", "gKr × 0.5", "ikr50",
     "Reduced rapid delayed-rectifier current slows phase-3 repolarisation; the M cell (low IKs) prolongs most.",
-    "Longer QT/QTc with unchanged QRS.", "No EADs/torsades; the M-cell layer is not represented in tissue, so transmural dispersion is under-represented."),
+    "Longer QT/QTc with unchanged QRS.", "No EADs/torsades; the M-cell layer is not represented in tissue, so transmural dispersion is under-represented. The TP06 → tissue mapping under-predicts the QT effect of hERG block about threefold: dofetilide at a dose giving ≈ 51 % block prolonged QTc by 79 ms in man (see the clinically calibrated dofetilide scenario), whereas this mapping gives ≈ +25 ms."),
   ionic("ikr-90", "IKr inhibition 90 %", "gKr × 0.1", "ikr90",
     "Near-complete IKr block (e.g. high-dose hERG blocker): strong APD prolongation.",
     "Marked QT prolongation with unchanged QRS.", "As above; TP06 produced no EADs under these conditions, so torsades cannot arise."),
   ionic("short-qt", "IKr gain of function (short-QT pattern)", "gKr × 2", "ikr200",
     "Increased IKr accelerates repolarisation (as in SQTS type 1, simplified as a conductance increase).",
     "Shorter QT; QRS unchanged.", "SQTS1 alters IKr inactivation kinetics, not just conductance."),
-  ionic("hyperk", "Hyperkalaemia ([K⁺]o 8 mM)", "Ko 5.4 → 8 mM", "ko8",
-    "Raised [K⁺]o depolarises the resting membrane (−85 → −75 mV), inactivating Na⁺ channels → slower upstroke and conduction.",
-    "QRS widening (via CV), modest QT change.", "Peaked T waves (faster repolarisation) are not transferred because tissue AP shape is fixed; atrial and AV-nodal effects not mapped."),
-  ionic("hypok", "Hypokalaemia ([K⁺]o 3 mM)", "Ko 5.4 → 3 mM", "ko3",
-    "Lower [K⁺]o hyperpolarises the cell and reduces IKr/IK1 conductance (√Ko dependence) → longer APD.",
-    "Mild QT prolongation.", "U waves and T flattening are not representable; increased Na⁺ availability slightly speeds conduction in the mapping."),
+  potassium("hyperk", "Hyperkalaemia (K⁺ 7.0 mmol/L)", 7.0,
+    "Peaked, narrow-based T waves, tallest in V2–V4; PR and QRS slightly longer; P wave lower and broader."),
+  potassium("hyperk-severe", "Hyperkalaemia, advanced (K⁺ 8.5 mmol/L)", 8.5,
+    "Peaked T waves with a long PR, a wide QRS (intraventricular conduction delay) and a flat, broad P wave — the later stages of Marriott's progression. The wide QRS brings secondary repolarisation changes in the lateral leads."),
+  potassium("hypok", "Hypokalaemia (K⁺ 3.0 mmol/L)", 3.0,
+    "Flattened T wave followed by a prominent U wave that exceeds it (T–U reversal), longest in V2–V4; larger P wave; QT(U) prolonged."),
   ionic("na-block", "Sodium-channel blockade (INa −50 %)", "gNa × 0.5", "na50",
     "Fewer available Na⁺ channels reduce dV/dt_max and conduction velocity.",
     "QRS widening; QT prolongs only by the QRS increase.", "Use-dependence (rate-dependent block) is not modelled; atrial/His–Purkinje effects not mapped."),
@@ -898,10 +1049,18 @@ export const SCENARIOS: Scenario[] = [
       p.ectopy = { ...p.ectopy, site: "lv-lateral", pattern: "bigeminy", coupling: EAD_COUPLING };
     }),
   },
-  drug("drug-dofetilide", "dofetilide", 4, "ikr-dominant"),
-  drug("drug-quinidine", "quinidine", 1, "ikr-dominant"),
+  clinicalDrug("drug-dofetilide", "dofetilide"),
+  clinicalDrug("drug-quinidine", "quinidine"),
   drug("drug-flecainide", "flecainide", 4, "na-dominant"),
-  drug("drug-verapamil", "verapamil", 4, "cal-dominant"),
+  clinicalDrug("drug-verapamil", "verapamil"),
+  // ---------------------------------------------------------------- Group F
+  ischaemiaScenario("lad-prox"),
+  ischaemiaScenario("lad-diag"),
+  ischaemiaScenario("lad-mid"),
+  ischaemiaScenario("lcx-nondominant"),
+  ischaemiaScenario("lcx-dominant"),
+  ischaemiaScenario("rca-prox"),
+  ischaemiaScenario("rca-distal"),
 ];
 
 /** Machine-readable export (used by scripts/export-registry.ts). */

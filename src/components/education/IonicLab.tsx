@@ -268,7 +268,7 @@ export function IonicLab() {
           <p>
             <b>Map onto tissue (reduced-order):</b> APD × {mapping.apdScale.toFixed(3)}, ventricular CV × {mapping.cvScale.toFixed(3)} (CV ∝ √dV/dt<sub>max</sub>).
           </p>
-          <p className="note">The tissue keeps its reduced-order AP shape: changes in repolarisation slope (e.g. peaked T in hyperkalaemia) and EADs are not transferred.</p>
+          <p className="note">"Apply to tissue" transfers APD and conduction only. Potassium is handled separately (Parameters → Electrolytes): its AP shape is calibrated so the peaked T of hyperkalaemia and the U wave of hypokalaemia appear, because TP06 itself changes the T wave very little. EADs are not transferred.</p>
           <div className="toolbar">
             <button
               className="btn"

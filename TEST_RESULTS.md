@@ -1,15 +1,16 @@
-# Test results — v1.4.0
+# Test results — v1.5.0
 
-Run on the v1.4.0 code base (headless Chromium 1194 for end-to-end tests).
+Run on the v1.5.0 code base (headless Chromium 1194 for end-to-end tests).
 
-## Unit / physiology (`npx vitest run`): 90 / 90 passed
+## Unit / physiology (`npx vitest run`): 104 / 104 passed
 
 | File | Tests | Covers |
 |---|---|---|
 | tests/physiology/normalSinus.test.ts | 12 | NSR intervals vs reference ranges, lead identities (Einthoven, Goldberger, WCT), activation order |
 | tests/physiology/rateDependence.test.ts | 4 | Rate → QT and AV-nodal conduction, vagal effects |
 | tests/simulation/engine.test.ts | 12 | Determinism, checkpoint/restore replay, parameter changes only after t, AV-nodal block, escape rhythms, premature activation, refractoriness |
-| tests/ecg/ecg.test.ts | 11 | Forward model and measurement pipeline; v1.4.0: sinus QRS amplitudes within ×2 of six population medians, restated QRS-onset coherence (earliest lead ≤ 10 ms, every lead ≤ 30 ms) |
+| tests/physiology/ischaemia.test.ts | 10 | v1.5.0: AHA territories; ST patterns of Marriott's seven culprit risk areas (incl. V4R, V7–V8); ST size vs human balloon occlusion (LAD calibrated; RCA and LCx independent) |
+| tests/ecg/ecg.test.ts | 12 | Forward model and measurement pipeline; v1.4.0: sinus QRS amplitudes within ×2 of six population medians, restated QRS-onset coherence (earliest lead ≤ 10 ms, every lead ≤ 30 ms) |
 
 ### Added in v1.1.0 (13 tests in tests/physiology/scenarios.test.ts)
 
@@ -33,7 +34,7 @@ Scenario tests check mechanism signatures from the simulator's own records, not 
 - **AVNRT:** ≥ 8 cycles via slow-antegrade / fast-retrograde conduction; since v1.4.0 CL within 317 ± 2·43 ms (Katritsis 2015) and retrograde atrial activation within the QRS.
 - **Antidromic AVRT:** pre-excited complexes with retrograde AV-nodal conduction.
 
-## End-to-end (`npx playwright test`): 20 / 20 passed
+## End-to-end (`npx playwright test`): 21 / 21 passed
 
 | Area | Tests |
 |---|---|
@@ -58,3 +59,8 @@ Scenario tests check mechanism signatures from the simulator's own records, not 
 - Visual correctness of the 3-D anatomy (checked by screenshots during development).
 - Fine morphology of BBB patterns. These are marked *incomplete* in the registry.
 - Demo-video content (generated from the running app; reviewed frame by frame).
+
+### Changed in v1.5.0
+- Drug tests (dofetilide, quinidine, verapamil) now check ΔQT, ΔJ–Tpeak, ΔTpeak–Tend and ΔPR on the heart-vector magnitude against the 95 % CIs of Johannesen et al. 2014 (±3 ms measurement slack at 2 ms sampling).
+- Potassium: the TP06 mapping tests for Ko 8 / Ko 3 were replaced by checks of the stored TP06 potassium table (APD, CV, amplitude at 3 and 8 mM) and by morphology tests — hyperkalaemia: taller and narrower T in V2–V4, longer PR and QRS, lower P; advanced: PR and QRS +40 ms; hypokalaemia: U wave larger than the flattened T in V2–V3, larger P.
+- Extra chest leads: V3R–V6R are rS and smaller than V1; V7–V9 are R-dominant.

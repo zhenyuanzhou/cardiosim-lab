@@ -7,7 +7,8 @@ import { useEffect, useRef } from "react";
 import { sim, useStore } from "../../state/store";
 import { fitCanvas, registerRenderer, tokens } from "../frameLoop";
 import { CT } from "../../simulation/core/model";
-import { NODAL, SHAPES, nodalV, repolMidpoint, ventricularNotchScale, workingA } from "../../simulation/cellular/actionPotential";
+import { NODAL, nodalV, repolMidpoint, ventricularNotchScale, workingA } from "../../simulation/cellular/actionPotential";
+import { apModsFor, vmOf } from "../apMods";
 import { deriveAutonomic } from "../../simulation/core/derive";
 
 /**
@@ -72,6 +73,7 @@ export function APPanel({ probeIds }: { probeIds?: string[] } = {}) {
         if (Math.round(g) % 1000 === 0 && x + 26 <= w) ctx.fillText(`${(g / 1000).toFixed(0)} s`, x + 2, h - 4);
       }
       const d = deriveAutonomic(st.params);
+      const mods = apModsFor(meta, st.params);
       lanes.forEach((lane, li) => {
         const y0 = li * laneH;
         const Y = (v: number) => y0 + 4 + ((V_MAX - v) / (V_MAX - V_MIN)) * (laneH - 8);
@@ -95,19 +97,19 @@ export function APPanel({ probeIds }: { probeIds?: string[] } = {}) {
         ctx.setLineDash([]);
         // activations relevant to the window
         const recs = data.activationsIn(lane.node, t0 - 1000, tEnd);
-        const shape = SHAPES[ct];
+        const shape = mods.shapes[ct];
         const notch = ct === CT.VENTRICULAR ? ventricularNotchScale(meta.transmural[lane.node]) : 1;
         const nodal = ct === CT.SAN || ct === CT.AVN;
         const cycles = recs.map((r, k) => (k + 1 < recs.length ? data.recT[recs[k + 1]] - data.recT[r] : k > 0 ? data.recT[r] - data.recT[recs[k - 1]] : d.sinusCycle));
         const vAt = (tt: number) => {
           let k = -1;
           for (let q = 0; q < recs.length; q++) if (data.recT[recs[q]] <= tt) k = q;
-          if (k < 0) return nodal ? (ct === CT.SAN ? NODAL.san.mdp : NODAL.avn.mdp) : shape.vRest;
+          if (k < 0) return nodal ? (ct === CT.SAN ? NODAL.san.mdp : NODAL.avn.mdp) : vmOf(mods, ct, lane.node, 0);
           const r = recs[k];
           const tau = tt - data.recT[r];
           const apd = data.recApd[r];
           if (nodal) return nodalV(ct === CT.SAN ? "san" : "avn", tau, apd, cycles[k]);
-          return shape.vRest + workingA(shape, tau, apd, repolMidpoint(shape, apd), notch) * (shape.vPeak - shape.vRest);
+          return vmOf(mods, ct, lane.node, workingA(shape, tau, apd, repolMidpoint(shape, apd), notch));
         };
         ctx.strokeStyle = tk.trace;
         ctx.lineWidth = 1.4;

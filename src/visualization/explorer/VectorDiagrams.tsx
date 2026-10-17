@@ -6,7 +6,7 @@ import { useEffect, useRef } from "react";
 import { sim, useStore } from "../../state/store";
 import { fitCanvas, registerRenderer, tokens } from "../frameLoop";
 import { LEAD_COLORS, LIMB_LEAD_VECTORS, dot3, heartVector, isLimb, leadVector } from "./leadMath";
-import { CHEST } from "../../simulation/ecg-forward/leadField";
+import { CHEST, N_CHANNELS } from "../../simulation/ecg-forward/leadField";
 import { CT } from "../../simulation/core/model";
 import { PRECORDIAL_POS } from "./leadMath";
 import type { SimData } from "../../simulation/worker/client";
@@ -37,7 +37,7 @@ export function vectorRange(data: SimData): number {
   const ns = data.sampleEnd - data.sampleOffset;
   const mags: number[] = [];
   for (let k = Math.max(0, ns - 4000); k < ns; k += 3) {
-    const o = k * 15;
+    const o = k * N_CHANNELS;
     mags.push(Math.hypot(data.ecg[o + 12], data.ecg[o + 13], data.ecg[o + 14]));
   }
   mags.sort((a, b) => a - b);

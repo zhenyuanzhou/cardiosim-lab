@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { N_CHANNELS } from "../../simulation/ecg-forward/leadField";
 import { sim, useStore } from "../../state/store";
 import { FIDELITY_TABLE, runChecks } from "./validation";
 
@@ -15,7 +16,7 @@ export function ValidationPanel() {
     const r = await sim.compare(params, params, 4000);
     let maxDiff = 0;
     for (let i = 0; i < Math.min(r.a.ecg.length, r.b.ecg.length); i++) maxDiff = Math.max(maxDiff, Math.abs(r.a.ecg[i] - r.b.ecg[i]));
-    setDet(r.a.ecg.length === r.b.ecg.length && maxDiff === 0 ? `PASS · two independent 4 s runs are bit-identical (${r.a.ecg.length / 15} samples)` : `FAIL · max difference ${maxDiff}`);
+    setDet(r.a.ecg.length === r.b.ecg.length && maxDiff === 0 ? `PASS · two independent 4 s runs are bit-identical (${r.a.ecg.length / N_CHANNELS} samples)` : `FAIL · max difference ${maxDiff}`);
   };
   return (
     <>

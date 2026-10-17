@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { pace, TP06_DEFAULT_MODS, type PacedResult } from "../../src/simulation/cellular/tp06";
 import { mapToTissue } from "../../src/simulation/cellular/ionicMapping";
+import { potassiumEffect } from "../../src/simulation/cellular/electrolytes";
 import { SCENARIOS, TP06_MAPPED } from "../../src/simulation/scenarios/scenarios";
 import { run, median } from "../helpers/sim";
 
@@ -41,11 +42,24 @@ const effects: Record<string, (q: ReturnType<typeof run>) => void> = {
   ikr50: (q) => expect(median(q.beats.slice(1, -1).map((b) => b.qt!))).toBeGreaterThan(median(nsr().beats.slice(1, -1).map((b) => b.qt!)) + 15),
   ikr90: (q) => expect(median(q.beats.slice(1, -1).map((b) => b.qt!))).toBeGreaterThan(median(nsr().beats.slice(1, -1).map((b) => b.qt!)) + 35),
   ikr200: (q) => expect(median(q.beats.slice(1, -1).map((b) => b.qt!))).toBeLessThan(median(nsr().beats.slice(1, -1).map((b) => b.qt!)) - 25),
-  ko8: (q) => expect(median(q.beats.map((b) => b.qrs))).toBeGreaterThan(median(nsr().beats.map((b) => b.qrs)) + 10),
-  ko3: (q) => expect(median(q.beats.slice(1, -1).map((b) => b.qt!))).toBeGreaterThan(median(nsr().beats.slice(1, -1).map((b) => b.qt!)) + 5),
   na50: (q) => expect(median(q.beats.map((b) => b.qrs))).toBeGreaterThan(median(nsr().beats.map((b) => b.qrs)) + 6),
   cal50: (q) => expect(median(q.beats.slice(1, -1).map((b) => b.qt!))).toBeLessThan(median(nsr().beats.slice(1, -1).map((b) => b.qt!)) - 40),
 };
+
+describe("Group E — potassium table (TP06)", () => {
+  // electrolytes.ts stores TP06's response to [K⁺]o; recompute two rows from the cell model.
+  for (const k of [3, 8]) {
+    it(`TP06 potassium table at ${k} mM`, () => {
+      const mod = CELLS.map((c) => pace(c, { ...TP06_DEFAULT_MODS, Ko: k }, 1000, 30));
+      const map = mapToTissue(baseline(), mod);
+      const e = potassiumEffect(k);
+      expect(Math.abs(map.apdScale - e.apdScale)).toBeLessThan(0.01);
+      expect(Math.abs(map.cvScale - e.cvScale)).toBeLessThan(0.01);
+      const amp = (rs: PacedResult[]) => rs.reduce((a, r) => a + r.vPeak - r.vRest, 0) / rs.length;
+      expect(Math.abs(amp(mod) / amp(baseline()) - e.ampScale)).toBeLessThan(0.01);
+    }, 120000);
+  }
+});
 
 describe("Group E — TP06 → tissue mapping", () => {
   for (const [key, m] of Object.entries(TP06_MAPPED)) {

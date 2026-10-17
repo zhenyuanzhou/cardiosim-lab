@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { activationTimes, median, model, params, run } from "../helpers/sim";
+import { N_CHANNELS } from "../../src/simulation/ecg-forward/leadField";
 import { CT, RG } from "../../src/simulation/core/model";
 
 /**
@@ -114,7 +115,7 @@ describe("normal sinus rhythm — intervals", () => {
     const dt = base.sim.dt;
     const area = (lead: number, t0: number, t1: number) => {
       let s = 0;
-      for (let t = t0; t <= t1; t += dt) s += base.out.ecg[Math.round(t / dt) * 15 + lead];
+      for (let t = t0; t <= t1; t += dt) s += base.out.ecg[Math.round(t / dt) * N_CHANNELS + lead];
       return s;
     };
     for (const lead of [1, 10]) {

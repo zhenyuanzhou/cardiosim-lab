@@ -15,6 +15,7 @@
  * meaning. Dynamic (beat-to-beat) restitution and slow APD memory are NOT calibrated.
  */
 import { CT } from "../core/model";
+import { POTASSIUM_REFERENCE, potassiumEffect } from "./electrolytes";
 
 export const RESTITUTION = { h: 0.1, tau: 2880 };
 /**
@@ -105,6 +106,15 @@ export interface Shape {
   plateau: number; // early plateau level (fraction of amplitude)
   plateauSlope: number; // fractional decline of the plateau over one APD
   repolWidth: number; // phase-3 logistic width as a fraction of APD
+  /**
+   * Optional slow terminal component of repolarisation: this fraction of the plateau repolarises with
+   * a wider logistic (`tailWidth`, fraction of APD) centred on the same midpoint. Small voltage
+   * differences between these AP tails are what produce the U wave (Ritsema van Eck et al. 2005).
+   */
+  tailFrac?: number;
+  tailWidth?: number;
+  /** Delay of the tail component's midpoint after the main one (fraction of APD; default 0). */
+  tailDelay?: number;
 }
 
 export const SHAPES: Record<number, Shape> = {
@@ -113,6 +123,45 @@ export const SHAPES: Record<number, Shape> = {
   [CT.PURKINJE]: { vRest: -88, vPeak: 40, upTau: 0.5, upDelay: 1.5, notch: 0.25, plateau: 0.78, plateauSlope: 0.15, repolWidth: 0.06 },
   [CT.VENTRICULAR]: { vRest: -85, vPeak: 35, upTau: 0.9, upDelay: 2.8, notch: 0.05, plateau: 0.86, plateauSlope: 0.14, repolWidth: 0.055 },
 };
+
+/**
+ * Waveform shapes for the current parameters: SHAPES modified by extracellular potassium
+ * (cellular/electrolytes.ts). Ventricular cells take the full change (amplitude, phase-3 width,
+ * plateau, slow terminal tail, resting potential); atrial cells take the amplitude and resting
+ * potential. Cached per potassium value.
+ */
+const shapeCache = new Map<number, Record<number, Shape>>();
+export function shapesFor(p: { electrolytes: { serumPotassium: number }; ventricles: { phase3Scale: number } }): Record<number, Shape> {
+  const k = Math.round(p.electrolytes.serumPotassium * 100) / 100;
+  const p3 = p.ventricles.phase3Scale ?? 1;
+  const key = k * 1000 + p3;
+  const hit = shapeCache.get(key);
+  if (hit) return hit;
+  let out: Record<number, Shape> = SHAPES;
+  if (k !== POTASSIUM_REFERENCE || p3 !== 1) {
+    const e = potassiumEffect(k);
+    const dRest = e.vRest - potassiumEffect(POTASSIUM_REFERENCE).vRest;
+    const V = SHAPES[CT.VENTRICULAR];
+    const A = SHAPES[CT.ATRIAL];
+    out = {
+      ...SHAPES,
+      [CT.VENTRICULAR]: {
+        ...V,
+        vRest: V.vRest + dRest,
+        vPeak: V.vRest + dRest + (V.vPeak - V.vRest) * e.ampScale,
+        plateau: Math.min(0.99, V.plateau * e.plateauScale),
+        plateauSlope: V.plateauSlope * e.plateauSlopeScale,
+        repolWidth: V.repolWidth * e.repolWidthScale * p3,
+        tailFrac: e.tailFrac,
+        tailDelay: e.tailDelay,
+        tailWidth: e.tailWidth,
+      },
+      [CT.ATRIAL]: { ...A, vRest: A.vRest + dRest, vPeak: A.vRest + dRest + (A.vPeak - A.vRest) * e.ampScale },
+    };
+  }
+  shapeCache.set(key, out);
+  return out;
+}
 
 /** Nodal cells (displayed only; SA/AV nodal mass contributes nothing to the ECG in this model). */
 export const NODAL = {
@@ -137,7 +186,9 @@ export function sigmoid(x: number): number {
 
 /** Per-activation constants for fast evaluation of working-cell waveforms. */
 export function repolMidpoint(s: Shape, apd: number): number {
-  // A(APD) = 0.10 (90 % repolarisation). Ignoring the notch & spike, A ≈ P(APD)·R(APD).
+  // A(APD) = 0.10 (90 % repolarisation) of the MAIN phase-3 component. Ignoring the notch & spike,
+  // A ≈ P(APD)·R(APD). A slow tail component (tailFrac > 0), if present, repolarises around or after
+  // this and is deliberately excluded from APD: it inscribes the U wave, which QT does not include.
   const pEnd = s.plateau * (1 - s.plateauSlope);
   const w = s.repolWidth * apd;
   const r = Math.min(0.999, 0.1 / pEnd);
@@ -158,7 +209,11 @@ export function workingA(s: Shape, tau: number, apd: number, t50: number, notchS
     p -= s.notch * notchScale * Math.exp(-z * z);
   }
   const w = s.repolWidth * apd;
-  const r = sigmoid((t50 - tau) / w);
+  const f = s.tailFrac ?? 0;
+  const r =
+    f > 0
+      ? (1 - f) * sigmoid((t50 - tau) / w) + f * sigmoid((t50 + (s.tailDelay ?? 0) * apd - tau) / ((s.tailWidth ?? s.repolWidth) * apd))
+      : sigmoid((t50 - tau) / w);
   return up * p * r;
 }
 

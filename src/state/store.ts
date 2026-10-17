@@ -40,6 +40,8 @@ export interface UIState {
   paperSpeed: 25 | 50;
   gain: 5 | 10 | 20;
   ecgLayout: "12lead" | "leads";
+  /** Chest leads in the 12-lead layout: standard, right-sided (V3R–V6R) or posterior (V7–V9). */
+  chestSet: "standard" | "right" | "posterior";
   selectedLeads: string[];
   ecgTool: "inspect" | "calipers";
   calipers: number[];
@@ -79,6 +81,7 @@ export const useStore = create<UIState>((set) => ({
   paperSpeed: 25,
   gain: 10,
   ecgLayout: "12lead",
+  chestSet: "standard",
   selectedLeads: ["II", "V1", "V5"],
   ecgTool: "inspect",
   calipers: [],

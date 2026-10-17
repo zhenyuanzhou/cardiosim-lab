@@ -76,7 +76,7 @@ export class SimHost {
       hisDistal: model.hisDistal,
       ventEscape: model.ventEscape,
       dt,
-      frame: { axis: model.frame.axis, septalDir: model.frame.septalDir, anteriorDir: model.frame.anteriorDir },
+      frame: { baseCenter: model.frame.baseCenter, axis: model.frame.axis, septalDir: model.frame.septalDir, anteriorDir: model.frame.anteriorDir },
       ectopicSites: model.ectopicSites,
       substrates: model.substrates,
     };

@@ -5,7 +5,8 @@
 import { CT, EK, type CardiacModel } from "./model";
 import type { RetroMode, SimParams } from "./params";
 import { NODAL, apdInfFromRef } from "../cellular/actionPotential";
-import { calciumApdShift } from "../cellular/electrolytes";
+import { calciumApdShift, potassiumEffect } from "../cellular/electrolytes";
+import { ischaemiaModifiers } from "./ischaemia";
 import { Rng } from "./rng";
 
 /** Nominal autonomic sensitivity coefficients (NOT data-derived; see params metadata). */
@@ -35,6 +36,12 @@ export interface Derived {
   hisTotalLength: number;
   /** Per lumped link (same order as model.links). */
   links: LinkParams[];
+  /** Per-node AP amplitude factor (regional ischaemia; 1 elsewhere). */
+  apAmp: Float32Array;
+  /** Per-node resting-potential shift (mV; display only — a uniform DC offset does not reach the AC-coupled ECG). */
+  restShift: Float32Array;
+  /** Per-node ischaemic weight 0…1 (null when no ischaemia). */
+  ischaemia: Float32Array | null;
 }
 
 /**
@@ -116,6 +123,10 @@ export function derive(model: CardiacModel, p: SimParams): Derived {
   const vL = p.ventricles.cvLongitudinal;
   const vT = vL / p.ventricles.anisotropyRatio;
   const hp = p.hisPurkinje;
+  // extracellular potassium (TP06): conduction in all Na⁺-dependent tissue; regional ischaemia
+  const kEff = potassiumEffect(p.electrolytes.serumPotassium);
+  const kCv = kEff.cvScale;
+  const isch = ischaemiaModifiers(model as unknown as Parameters<typeof ischaemiaModifiers>[0], p);
   for (let i = 0; i < n; i++) {
     for (let q = model.adjStart[i]; q < model.adjStart[i + 1]; q++) {
       const j = model.adjNode[q];
@@ -178,6 +189,11 @@ export function derive(model: CardiacModel, p: SimParams): Derived {
           d = model.cellType[i] === CT.VENTRICULAR ? (hp.pmjRetroDelay >= 200 ? Infinity : hp.pmjRetroDelay) : hp.pmjDelay;
           break;
       }
+      if (kCv !== 1) {
+        const k = model.adjKind[q];
+        if (k === EK.VENT || k === EK.ATRIAL || k === EK.ATRIAL_FAST || k === EK.HIS || k === EK.LBB || k === EK.RBB || k === EK.LAF || k === EK.LPF || k === EK.LSF || k === EK.PURKINJE) d /= kCv;
+      }
+      if (isch.field && model.adjKind[q] === EK.VENT) d /= 0.5 * (isch.cv[i] + isch.cv[j]);
       if (sub.blocked[i] || sub.blocked[j]) d = Infinity;
       else if (sub.cti[i] && sub.cti[j]) d /= p.atria.ctiCvFactor;
       else if (sub.isthmus[i] && sub.isthmus[j]) d /= p.ventricles.isthmusCvFactor;
@@ -221,6 +237,8 @@ export function derive(model: CardiacModel, p: SimParams): Derived {
   // Applied after smoothing because it is a uniform offset, not a spatial gradient.
   const caShift = calciumApdShift(p.electrolytes.serumCalcium);
   if (caShift !== 0) for (let i = 0; i < n; i++) if (model.cellType[i] === CT.VENTRICULAR) apdRef[i] = Math.max(60, apdRef[i] + caShift);
+  // potassium (TP06 APD scale, ventricles) and regional ischaemia (TP06 under phase-1a conditions)
+  for (let i = 0; i < n; i++) if (model.cellType[i] === CT.VENTRICULAR) apdRef[i] *= kEff.apdScale * isch.apd[i];
   // substrate-specific repolarisation
   for (let i = 0; i < n; i++) {
     if (sub.cti[i]) apdRef[i] *= p.atria.ctiApdFactor;
@@ -241,6 +259,9 @@ export function derive(model: CardiacModel, p: SimParams): Derived {
     apdInf,
     erpRatio,
     hisTotalLength: hisLen,
+    apAmp: isch.amp,
+    restShift: isch.rest,
+    ischaemia: isch.field,
   };
 }
 

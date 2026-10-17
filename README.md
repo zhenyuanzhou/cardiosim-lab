@@ -28,8 +28,8 @@ npm run dev          # opens http://localhost:5173
 | `npm run dev` | Development server with hot reload |
 | `npm run build` | Type-check and build a static site in `dist/` (serve with `npm run preview`) |
 | `npm run build:standalone` | Build one self-contained HTML file in `dist-standalone/index.html` |
-| `npm test` | 90 physiology / scenario / ionic / ECG unit tests (Vitest, about 5 min) |
-| `npm run test:e2e` | 20 browser tests (Playwright). First time: `npx playwright install chromium` |
+| `npm test` | 104 physiology / scenario / ionic / ECG unit tests (Vitest, about 5 min) |
+| `npm run test:e2e` | 21 browser tests (Playwright). First time: `npx playwright install chromium` |
 | `npm run validate` | Prints a baseline report: ECG-measured intervals vs model timings vs references |
 
 ## Using the app
@@ -38,7 +38,7 @@ Four **modes** (top bar):
 
 | Mode | Contents |
 |---|---|
-| **Simulator** | **A · Anatomy & activation:** smooth 3-D heart with toggleable layers (anatomy, major conduction pathways, activation, repolarisation, refractoriness, vectors, tissue mesh), presets for anterior, posterior, left-lateral and superior views, and click-to-select. Great vessels are shown for orientation only. **B · Action potentials:** reduced-order APs for selected cells. **C · 12-lead ECG:** 3×4 + rhythm strip (6×2 on narrow screens) or selected leads; calipers, Inspect and SVG/PNG/CSV export; measurements next to model truth; a causal event log (click an event to highlight the structure and read what it means). **D · Controls:** Scenarios (registry with implementation status), Parameters, Explain, Lessons, **Ionic cell** (TP06), Validation, A/B and About. |
+| **Simulator** | **A · Anatomy & activation:** smooth 3-D heart with toggleable layers (anatomy, major conduction pathways, activation, repolarisation, refractoriness, vectors, tissue mesh), presets for anterior, posterior, left-lateral and superior views, and click-to-select. Great vessels are shown for orientation only. **B · Action potentials:** reduced-order APs for selected cells. **C · 12-lead ECG:** 3×4 + rhythm strip (6×2 on narrow screens) with standard, right-sided (V3R–V6R) or posterior (V7–V9) chest leads, or any selection of the 19 leads; calipers, Inspect and SVG/PNG/CSV export; measurements next to model truth; a causal event log (click an event to highlight the structure and read what it means). **D · Controls:** Scenarios (registry with implementation status), Parameters, Explain, Lessons, **Ionic cell** (TP06), Validation, A/B and About. |
 | **Leads & Vectors** | Torso with RA/LA/LL/RL and V1–V6 electrodes; lead axes (solid = positive half), wiring to the Wilson central terminal, projection bar, optional lead-field proximity map; hexaxial frontal plane with QRS loop and measured axis; horizontal plane with the effective chest-lead vector and its R². Compare up to three leads. The **Experiments** menu runs A–F. |
 | **Split view** | Heart, torso, frontal vector, ECG strip, action potentials and the current electrical event, all on one clock. |
 | **A/B** | Two parameter sets simulated from t = 0 and animated side by side, with an ECG overlay at identical scaling and the list of differences. |
@@ -55,7 +55,7 @@ Panels can be resized by dragging the dividers and maximised with ⤢ (Esc resto
 
 | Mechanistic or reduced-order and runnable | Partial | Not supported (labelled, not runnable) |
 |---|---|---|
-| Sinus rhythm and rate changes, sinus arrest, SA exit block, 1° AV block, Mobitz I and II, 2:1 and complete AV block with escape rhythms, PACs, PVCs (compensatory and interpolated), bigeminy, trigeminy, couplets (also on demand: *Premature beats* controls), focal AT, AVNRT, orthodromic and antidromic AVRT, pre-excitation, typical atrial flutter, atrial fibrillation, LBBB; RBBB (axis incomplete) | Focal VT (automaticity imposed); IKr inhibition, short QT, hyper-/hypokalaemia, Na⁺ and Ca²⁺ channel block via the TP06 ionic cell model mapped to tissue APD/CV; scar VT, polymorphic VT, VF, hyper-/hypocalcaemia, EAD/DAD, drug scenarios (partial); torsades (incomplete) | None since v1.2.0 |
+| Sinus rhythm and rate changes, sinus arrest, SA exit block, 1° AV block, Mobitz I and II, 2:1 and complete AV block with escape rhythms, PACs, PVCs (compensatory and interpolated), bigeminy, trigeminy, couplets (also on demand: *Premature beats* controls), focal AT, AVNRT, orthodromic and antidromic AVRT, pre-excitation, typical atrial flutter, atrial fibrillation, LBBB; RBBB (axis incomplete) | Focal VT (automaticity imposed); IKr inhibition, short QT, Na⁺ and Ca²⁺ channel block via the TP06 ionic cell model mapped to tissue APD/CV; hyper-/hypokalaemia (TP06 + calibrated T/U shape); dofetilide, quinidine, verapamil calibrated to a human study; acute ischaemia for seven culprit lesions (ST elevation patterns, right-sided and posterior leads); scar VT, polymorphic VT, VF, hyper-/hypocalcaemia, EAD/DAD, drug scenarios (partial); torsades (incomplete) | None since v1.2.0 |
 
 The status of every scenario is in `docs/scenario-registry.json`; limitations are in `SCIENTIFIC_LIMITATIONS.md`. The details are in `docs/FIDELITY_MATRIX.md`. The baseline (default parameters, measured from the simulated ECG) is HR 66, PR 158 ms, QRS 88 ms, QT 370 ms, QTc 387 ms and QRS axis +18°; lead I R 0.73 mV and V2 S 1.6 mV (amplitudes recalibrated in v1.4.0, see `SCIENTIFIC_LIMITATIONS.md`); the model gives AH 65 ms and HV 41 ms.
 

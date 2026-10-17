@@ -1,3 +1,4 @@
+import { CULPRITS, CULPRIT_LABELS, type Culprit } from "./ischaemia";
 /**
  * Single typed, serialisable simulation-state parameter model.
  *
@@ -79,10 +80,20 @@ export interface SimParams {
     borderCvFactor: number;
     /** Relative SD of the ventricular APD map (seeded, spatially smoothed) — repolarisation dispersion. */
     heterogeneity: number;
+    /** Multiplier of the phase-3 (repolarisation) width of ventricular cells: > 1 slower, flatter T wave. */
+    phase3Scale: number;
   };
   electrolytes: {
     /** Total serum calcium (mmol/L); acts on ventricular APD through a measured human QT slope. */
     serumCalcium: number;
+    /** Extracellular potassium (mmol/L); TP06 reference 5.4. Acts on APD, conduction, AP amplitude and AP shape. */
+    serumPotassium: number;
+  };
+  /** Acute regional ischaemia from a culprit coronary lesion (see core/ischaemia.ts). */
+  ischaemia: {
+    culprit: Culprit;
+    /** 0 off; 1 APD shortening (hyperacute T); 2 + AP amplitude loss (ST elevation); 3 + slow conduction. */
+    grade: number;
   };
   restitution: {
     cvAmplitude: number; // fractional CV reduction at DI -> 0
@@ -210,8 +221,10 @@ export const DEFAULT_PARAMS: SimParams = {
     isthmusApdFactor: 1.15,
     borderCvFactor: 0.5,
     heterogeneity: 0,
+    phase3Scale: 1,
   },
-  electrolytes: { serumCalcium: 2.4 },
+  electrolytes: { serumCalcium: 2.4, serumPotassium: 5.4 },
+  ischaemia: { culprit: "none", grade: 2 },
   restitution: { cvAmplitude: 0.5, cvTau: 30, apdFloor: 0.45 },
   forward: { limbGain: 1.0, precordialGain: 0.8 },
   rhythm: { sinusArrest: false, saExitBlockEvery: 0 },
@@ -749,7 +762,7 @@ const sw = (path: string, label: string, group: string, structure: string, mecha
 const ch = (path: string, label: string, group: string, options: readonly string[], structure: string, mechanism: string, prediction: string): ParamMeta => ({
   path, label, unit: "", min: 0, max: 0, step: 0, group, structure, mechanism, prediction, evidence: "nominal",
   source: "Mechanistic choice; no numeric value involved.", kind: "choice",
-  options: options.map((o) => ({ value: o, label: SITE_LABELS[o] ?? o })),
+  options: options.map((o) => ({ value: o, label: SITE_LABELS[o] ?? (CULPRIT_LABELS as Record<string, string>)[o] ?? o })),
 });
 const num = (path: string, label: string, unit: string, min: number, max: number, step: number, group: string, structure: string, mechanism: string, prediction: string, source: string): ParamMeta => ({
   path, label, unit, min, max, step, group, structure, mechanism, prediction, evidence: "nominal", source,
@@ -796,6 +809,10 @@ PARAM_META.push(
     "Relative spatial dispersion of ventricular APD (seeded, smoothed over ≈ 5 mm), on top of the transmural and apicobasal gradients.",
     "Higher → local block and wave break during rapid or premature activation; the substrate for polymorphic VT and fibrillatory conduction.",
     "Nominal magnitude; the spatial pattern is a smoothed random field, not patient anatomy."),
+  num("ventricles.phase3Scale", "Phase-3 repolarisation width", "×", 0.3, 4, 0.05, "Ventricular electrophysiology", "Ventricular myocytes (phase 3)",
+    "Scales how gradually ventricular cells repolarise (the width of phase 3). Slower phase 3 is the cellular effect of reduced repolarising K⁺ current (IKr block, hypokalaemia).",
+    "Higher → broader, lower T wave and a longer Tpeak–Tend; lower → narrower, taller T.",
+    "Nominal at 1; the drug scenarios set it from clinical Tpeak–Tend data (Johannesen et al. 2014)."),
   num("restitution.apdFloor", "APD floor (fraction of reference APD)", "×", 0.3, 0.95, 0.01, "Restitution", "Working myocardium (short diastolic intervals)",
     "The shortest action potential the tissue will produce, as a fraction of its reference APD. It only binds at very short diastolic intervals, so it leaves normal-rate behaviour and the fitted steady-state restitution untouched.",
     "Because this engine's re-entry has no excitable gap, this floor sets the cycle length of any functional re-entry: CL ≈ ERP/APD ratio × floor × reference APD. Raising it slows fibrillation and makes re-entry harder to sustain.",
@@ -804,6 +821,17 @@ PARAM_META.push(
     "Shifts ventricular APD by 30.1 ms per mmol/L fall in total serum calcium — the human QT–calcium slope from Mendelian randomisation in UK Biobank (Young et al. 2021, n = 76 226). The ionic cell model is NOT used here because TP06 reproduces the opposite direction.",
     "Lower calcium → longer QT with unchanged QRS; higher calcium → shorter QT.",
     "Measured human slope: +3.01 ms QT (95% CI 2.03–3.99) per 0.1 mmol/L fall in total serum calcium (doi:10.1161/CIRCGEN.120.003231). Linear and measured near the reference range, so values far outside it are extrapolation."),
+  num("electrolytes.serumPotassium", "Extracellular potassium", "mmol/L", 2.0, 9.0, 0.1, "Electrolytes", "All working myocardium and the His–Purkinje system",
+    "Changes the resting potential, Na⁺ availability and repolarising K⁺ currents. APD, conduction velocity and AP amplitude follow the TP06 cell model (√ dV/dt_max for conduction, applied to atria, His–Purkinje and ventricles); the AP shape (phase-3 steepness, a slow terminal tail) is calibrated so the T and U waves take their textbook form — see SCIENTIFIC_LIMITATIONS.md. 5.4 mmol/L is the TP06 reference (upper end of the normal serum range).",
+    "Higher → peaked narrow T, then longer PR, wider QRS and flattened P. Lower → flat T, prominent U wave, larger P, longer QT(U).",
+    "TP06 for APD/CV/amplitude (scripts/dev/k-table.ts); shape magnitudes calibrated, not measured."),
+  ch("ischaemia.culprit", "Culprit coronary lesion", "Ischaemia", CULPRITS, "Coronary territory (AHA 17-segment model)",
+    "Makes the territory of the chosen lesion acutely ischaemic (transmural): shorter APD, lower AP amplitude and, at grade 3, slower conduction, from the TP06 cell model under phase-1a ischaemic conditions.",
+    "ST elevation in the leads facing the territory and reciprocal depression opposite — the patterns of Marriott's seven culprit risk areas."),
+  num("ischaemia.grade", "Ischaemia grade (Sclarovsky–Birnbaum)", "0–3", 0, 3, 1, "Ischaemia", "Ischaemic myocardium",
+    "0 off; 1 APD shortening only; 2 + loss of AP amplitude; 3 + delayed depolarisation (slow conduction).",
+    "1 → taller (hyperacute) T waves; 2 → ST elevation; 3 → the QRS also deviates toward the ischaemic zone (tombstoning).",
+    "Grading after Sclarovsky & Birnbaum as described in Marriott ch. 6; magnitudes from TP06."),
   num("avNode.concealment", "Concealed antegrade conduction", "0–1", 0, 1, 0.05, "AV nodal function", "AV node",
     "Blocked antegrade impulses that arrive late in the refractory period (R ≥ 0.6·ERP) still penetrate the node and push its recovery reference forward by a fraction of the elapsed time (0 = off).",
     "With rapid irregular atrial input (AF) this makes ventricular conduction irregular; it also lengthens the effective nodal refractoriness.",

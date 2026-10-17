@@ -20,7 +20,7 @@ export interface ModelMeta {
   hisDistal: number;
   ventEscape: number;
   dt: number;
-  frame: { axis: number[]; septalDir: number[]; anteriorDir: number[] };
+  frame: { baseCenter: number[]; axis: number[]; septalDir: number[]; anteriorDir: number[] };
   ectopicSites: Record<string, number>;
   substrates: Record<string, Int32Array>;
 }

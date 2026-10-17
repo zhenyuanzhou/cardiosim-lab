@@ -12,7 +12,8 @@ import * as THREE from "three";
 import { substrateMasks } from "../../simulation/core/derive";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CT, RG, REGION_NAMES } from "../../simulation/core/model";
-import { SHAPES, repolMidpoint } from "../../simulation/cellular/actionPotential";
+import { shapesFor, repolMidpoint } from "../../simulation/cellular/actionPotential";
+import { apModsFor } from "../apMods";
 import type { ModelMeta } from "../../simulation/worker/protocol";
 import type { SurfaceMesh } from "../../simulation/tissue/surfaces";
 import type { SimData } from "../../simulation/worker/client";
@@ -63,6 +64,7 @@ const C = {
   highlight: [0.2, 0.95, 1.0] as RGB,
   /** Non-conducting tissue of an active substrate (valve annulus, caval orifices, block line, scar). */
   scar: [0.32, 0.32, 0.34] as RGB,
+  ischaemia: [0.42, 0.3, 0.62] as RGB,
 };
 export const LAYER_COLORS = C;
 const AT_STOPS: [number, RGB][] = [
@@ -536,15 +538,19 @@ export class HeartScene {
       this.blockedMask = params.atria.flutterSubstrate || params.ventricles.scar ? substrateMasks(meta, params).blocked : null;
     }
     const blocked = this.blockedMask;
+    const isch = apModsFor(meta, params).field;
+    const ischTmp: RGB = [0, 0, 0];
     for (let i = 0; i < meta.n; i++) {
       const ct = meta.cellType[i];
-      const base = blocked && blocked[i] ? C.scar : ct === CT.ATRIAL || ct === CT.VENTRICULAR ? baseColor(meta.region[i], L.anatomy) : C.pathIdle;
+      let base = blocked && blocked[i] ? C.scar : ct === CT.ATRIAL || ct === CT.VENTRICULAR ? baseColor(meta.region[i], L.anatomy) : C.pathIdle;
+      // ischaemic territory of the culprit lesion: tinted at rest so the "victim" region is visible
+      if (isch && isch[i] > 0.02) base = mix(base, C.ischaemia, 0.75 * isch[i], ischTmp);
       let col: RGB = base;
       const r = data.lastActIndex(i, t);
       if (r >= 0) {
         const tau = t - data.recT[r];
         const apd = data.recApd[r];
-        const s = SHAPES[ct];
+        const s = shapesFor(params)[ct];
         const erp = apd * (ct === CT.ATRIAL ? params.atria.erpRatio : params.ventricles.erpRatio);
         if (wave) {
           if (data.recWave[r] === wave.id && (ct === CT.ATRIAL || ct === CT.VENTRICULAR)) {

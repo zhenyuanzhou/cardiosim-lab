@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { median, model, params, run, W } from "../helpers/sim";
-import { N_COLS, LEAD_NAMES } from "../../src/simulation/ecg-forward/leadField";
+import { N_COLS, N_CHANNELS, LEAD_NAMES, channelOf } from "../../src/simulation/ecg-forward/leadField";
 import { CT } from "../../src/simulation/core/model";
 
 const base = run(params(), 8000);
-const nS = base.out.ecg.length / 15;
-const x = (s: number, l: number) => base.out.ecg[s * 15 + l];
+const nS = base.out.ecg.length / N_CHANNELS;
+const x = (s: number, l: number) => base.out.ecg[s * N_CHANNELS + l];
 
 describe("lead system", () => {
   it("satisfies Einthoven's law and the Goldberger identity exactly", () => {
@@ -91,6 +91,30 @@ describe("timing coherence", () => {
   });
 });
 
+describe("extra chest leads (v1.5.0)", () => {
+  it("right-sided leads are small rS complexes and posterior leads are R-dominant", () => {
+    const w = base.waves[4];
+    const dt = base.sim.dt;
+    const pp = (name: string) => {
+      const ch = channelOf(name);
+      let hi = 0;
+      let lo = 0;
+      for (let t = w.tFirstVent - 10; t < w.tLastVent + 10; t += dt) {
+        const v = x(Math.round(t / dt), ch);
+        hi = Math.max(hi, v);
+        lo = Math.min(lo, v);
+      }
+      return { R: hi, S: -lo };
+    };
+    for (const n of ["V3R", "V4R", "V5R", "V6R"]) {
+      const a = pp(n);
+      expect(a.S, n).toBeGreaterThan(a.R); // rS: the left ventricle activates away from the right chest
+      expect(a.R + a.S, n).toBeLessThan(pp("V1").R + pp("V1").S); // smaller than V1
+    }
+    for (const n of ["V7", "V8", "V9"]) expect(pp(n).R, n).toBeGreaterThan(pp(n).S);
+  });
+});
+
 describe("amplitudes (v1.4.0 calibration)", () => {
   it("sinus QRS amplitudes are within a factor of 2 of population medians", () => {
     // Medians, Cleveland Family Study visit 5 (n = 732; sleepdata.org). Remaining misfit is documented
@@ -125,7 +149,7 @@ describe("QRS changes with the activation vector", () => {
     const dt = r.sim.dt;
     const vals = r.beats.slice(2, 6).map((b) => {
       let s = 0;
-      for (let t = b.qrsOff - 40; t <= b.qrsOff; t += dt) s += r.out.ecg[Math.round(t / dt) * 15 + lead] * dt;
+      for (let t = b.qrsOff - 40; t <= b.qrsOff; t += dt) s += r.out.ecg[Math.round(t / dt) * N_CHANNELS + lead] * dt;
       return s;
     });
     return median(vals);
@@ -143,7 +167,7 @@ describe("QRS changes with the activation vector", () => {
       return median(
         r.beats.slice(2, 6).map((b) => {
           let s = 0;
-          for (let t = b.qrsOn; t <= b.qrsOn + 20; t += dt) s += r.out.ecg[Math.round(t / dt) * 15 + 0] * dt;
+          for (let t = b.qrsOn; t <= b.qrsOn + 20; t += dt) s += r.out.ecg[Math.round(t / dt) * N_CHANNELS + 0] * dt;
           return s;
         }),
       );

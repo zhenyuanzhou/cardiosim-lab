@@ -99,7 +99,7 @@ test.describe("CardioSim Lab", () => {
     const path = await dl.path();
     const fs = await import("fs");
     const text = fs.readFileSync(path!, "utf8");
-    expect(text.split("\n")[0]).toBe("time_ms,I,II,III,aVR,aVL,aVF,V1,V2,V3,V4,V5,V6");
+    expect(text.split("\n")[0]).toBe("time_ms,I,II,III,aVR,aVL,aVF,V1,V2,V3,V4,V5,V6,V3R,V4R,V5R,V6R,V7,V8,V9");
     expect(text.split("\n").length).toBeGreaterThan(100);
   });
 
@@ -221,6 +221,16 @@ test.describe("premature beats and atrial arrhythmias", () => {
     await page.click('[data-testid="ectopy-quick"] [data-pattern="trigeminy"]');
     await page.waitForTimeout(8000);
     expect(await ectopicV(page)).toBeGreaterThan(n1);
+  });
+
+  test("an ischaemia scenario selects the right-sided chest leads", async ({ page }) => {
+    await page.click('[data-tab="scenarios"]');
+    await page.click('[data-scenario="isch-rca-prox"]');
+    await expect(page.locator('[data-testid="scenario-card"]')).toContainText("V4R");
+    await page.click('[data-testid="scenario-load"]');
+    await expect(page.locator('[data-chest="right"]')).toHaveClass(/on/);
+    await page.click('[data-chest="posterior"]');
+    await expect(page.locator('[data-chest="posterior"]')).toHaveClass(/on/);
   });
 
   test("atrial flutter and fibrillation scenarios report rhythm-level measurements", async ({ page }) => {

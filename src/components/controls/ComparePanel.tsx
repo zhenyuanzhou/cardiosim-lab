@@ -3,9 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import { META_BY_PATH, diffParams } from "../../simulation/core/params";
 import { sim, useStore } from "../../state/store";
 import { fitCanvas, tokens } from "../../visualization/frameLoop";
-import { LEAD_NAMES } from "../../simulation/ecg-forward/leadField";
+import { LEAD_NAMES, N_CHANNELS } from "../../simulation/ecg-forward/leadField";
 import { CT } from "../../simulation/core/model";
-import { SHAPES, nodalV, repolMidpoint, ventricularNotchScale, workingA } from "../../simulation/cellular/actionPotential";
+import { nodalV, repolMidpoint, ventricularNotchScale, workingA } from "../../simulation/cellular/actionPotential";
+import { ischaemiaModifiers } from "../../simulation/core/ischaemia";
+import { shapesFor } from "../../simulation/cellular/actionPotential";
+import type { SimParams } from "../../simulation/core/params";
 import type { BeatMeasurement } from "../../simulation/ecg-forward/measurements";
 
 const DURATION = 10000;
@@ -162,8 +165,8 @@ export function CompareView() {
         let first = true;
         for (let t = start; t <= start + win; t += c.dt) {
           const i = Math.round(t / c.dt);
-          if (i * 15 + li >= ecg.length) break;
-          const y = base - ecg[i * 15 + li] * vS;
+          if (i * N_CHANNELS + li >= ecg.length) break;
+          const y = base - ecg[i * N_CHANNELS + li] * vS;
           if (first) ctx.moveTo(X(t), y);
           else ctx.lineTo(X(t), y);
           first = false;
@@ -188,7 +191,9 @@ export function CompareView() {
       ctx.fillStyle = tk["fg-dim"];
       ctx.font = "11px IBM Plex Sans, system-ui, sans-serif";
       ctx.fillText(`Action potential overlay · ${st.customNode !== null ? "selected cell" : "LV lateral epicardium"}`, x0, apTop - 4);
-      const apTrace = (run: typeof c.a, color: string) => {
+      const apTrace = (run: typeof c.a, color: string, rp: SimParams) => {
+        const shapes = shapesFor(rp);
+        const im = ischaemiaModifiers(meta as unknown as Parameters<typeof ischaemiaModifiers>[0], rp);
         const acts: number[] = [];
         for (let k = 0; k < run.recNode.length; k++) if (run.recNode[k] === node) acts.push(k);
         ctx.strokeStyle = color;
@@ -201,9 +206,10 @@ export function CompareView() {
           let v: number;
           if (ct === CT.SAN || ct === CT.AVN) v = r < 0 ? -62 : nodalV(ct === CT.SAN ? "san" : "avn", t - run.recT[r], run.recApd[r], 900);
           else {
-            const s = SHAPES[ct];
+            const s = shapes[ct];
             const notch = ct === CT.VENTRICULAR ? ventricularNotchScale(meta.transmural[node]) : 1;
-            v = r < 0 ? s.vRest : s.vRest + workingA(s, t - run.recT[r], run.recApd[r], repolMidpoint(s, run.recApd[r]), notch) * (s.vPeak - s.vRest);
+            const A = r < 0 ? 0 : workingA(s, t - run.recT[r], run.recApd[r], repolMidpoint(s, run.recApd[r]), notch);
+            v = s.vRest + im.rest[node] + A * (s.vPeak - s.vRest) * im.amp[node];
           }
           if (first) ctx.moveTo(X(t), Y(v));
           else ctx.lineTo(X(t), Y(v));
@@ -211,8 +217,8 @@ export function CompareView() {
         }
         ctx.stroke();
       };
-      apTrace(c.a, tk["trace-b"]);
-      apTrace(c.b, tk.trace);
+      apTrace(c.a, tk["trace-b"], c.a_params);
+      apTrace(c.b, tk.trace, c.b_params);
       ctx.fillStyle = tk["fg-faint"];
       ctx.font = "10px IBM Plex Mono, monospace";
       for (let g = Math.ceil(start / 500) * 500; g <= start + win; g += 500) ctx.fillText(`${(g / 1000).toFixed(1)} s`, X(g) - 10, h - 4);

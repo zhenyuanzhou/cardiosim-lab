@@ -39,11 +39,27 @@ export const LIMB_EFFECTIVE_DISTANCE = 150;
 export const PRECORDIAL_NAMES = ["V1", "V2", "V3", "V4", "V5", "V6"] as const;
 export const LEAD_NAMES = ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"] as const;
 export type LeadName = (typeof LEAD_NAMES)[number];
-/** Number of lead-field columns: dipole (3) + chest electrodes (6). */
-export const N_COLS = 9;
+/** Additional chest leads: right-sided (mirror images of V3–V6) and posterior (V7–V9). */
+export const EXTRA_LEAD_NAMES = ["V3R", "V4R", "V5R", "V6R", "V7", "V8", "V9"] as const;
+/** Every lead the model computes, in channel order of the leads (12 standard, then the extra chest leads). */
+export const ALL_LEAD_NAMES = [...LEAD_NAMES, ...EXTRA_LEAD_NAMES] as const;
+/** Number of chest electrodes (6 standard + 7 extra). */
+export const N_CHEST = 13;
+/** Number of lead-field columns: dipole (3) + chest electrodes. */
+export const N_COLS = 3 + N_CHEST;
 export const N_LEADS = 12;
-/** Output channels per sample: 12 leads + heart-vector (Px, Py, Pz) in mV-equivalent. */
-export const N_CHANNELS = 15;
+/**
+ * Output channels per sample: [I … V6 (0–11), Px, Py, Pz (12–14), V3R … V9 (15–21)]. The heart
+ * vector keeps its historical channels 12–14; the extra chest leads follow it.
+ */
+export const N_CHANNELS = 22;
+/** Channel index of any lead name (standard or extra), −1 if unknown. */
+export function channelOf(name: string): number {
+  const i = LEAD_NAMES.indexOf(name as LeadName);
+  if (i >= 0) return i;
+  const j = EXTRA_LEAD_NAMES.indexOf(name as (typeof EXTRA_LEAD_NAMES)[number]);
+  return j >= 0 ? 15 + j : -1;
+}
 
 /** Einthoven frontal-plane unit vectors (x → left, y → inferior). */
 export const EINTHOVEN: Record<"RA" | "LA" | "LL", Vec3> = {
@@ -89,8 +105,44 @@ export function precordialPositions(): Vec3[] {
   ];
 }
 
-/** Lead-field weights, interleaved [node * N_COLS + column]. */
-export function computeLeadField(model: CardiacModel, chest = precordialPositions()): Float32Array {
+/**
+ * Right-sided and posterior electrodes (mm, model frame), at the level of V4–V6 (5th intercostal space):
+ * V3R–V6R are the mirror images of V3–V6 across the sternal midline; V7 posterior axillary, V8
+ * mid-scapular and V9 left paraspinal line on the back. The back positions are nominal points on the
+ * idealised elliptical chest.
+ */
+export function extraChestPositions(): Vec3[] {
+  const C = CHEST;
+  const front = (dx: number, y: number): Vec3 => {
+    const u = Math.min(1, Math.abs(dx / C.halfWidth));
+    return [C.midlineX + dx, y, C.centerZ + C.halfDepth * Math.sqrt(1 - u * u)];
+  };
+  const back = (dx: number, y: number): Vec3 => {
+    const u = Math.min(1, Math.abs(dx / C.halfWidth));
+    return [C.midlineX + dx, y, C.centerZ - C.halfDepth * Math.sqrt(1 - u * u)];
+  };
+  const v3x = (C.sternalHalfWidth + C.midclavicular) / 2;
+  const v3y = (C.ics4Y + C.ics5Y) / 2;
+  return [
+    front(-v3x, v3y), // V3R
+    front(-C.midclavicular, C.ics5Y), // V4R
+    front(-C.anteriorAxillary, C.ics5Y), // V5R
+    front(-(C.halfWidth - 0.01), C.ics5Y), // V6R
+    back(C.anteriorAxillary, C.ics5Y), // V7: posterior axillary line
+    back(80, C.ics5Y), // V8: mid-scapular line
+    back(30, C.ics5Y), // V9: left paraspinal line
+  ];
+}
+
+/** All chest electrodes in column order: V1–V6, then V3R–V6R, V7–V9. */
+export const allChestPositions = (): Vec3[] => [...precordialPositions(), ...extraChestPositions()];
+
+/**
+ * Lead-field weights, interleaved [node * N_COLS + column]. `chest` may hold the 6 standard
+ * electrodes only (the extra ones are then appended at their default positions) or all 13.
+ */
+export function computeLeadField(model: CardiacModel, chestIn: Vec3[] = allChestPositions()): Float32Array {
+  const chest = chestIn.length >= N_CHEST ? chestIn : [...chestIn, ...extraChestPositions()];
   const W = new Float64Array(model.n * N_COLS);
   const h = model.gridSpacing;
   const P = model.pos;
@@ -111,7 +163,7 @@ export function computeLeadField(model: CardiacModel, chest = precordialPosition
     const mx = 0.5 * (P[3 * j] + P[3 * i]);
     const my = 0.5 * (P[3 * j + 1] + P[3 * i + 1]);
     const mz = 0.5 * (P[3 * j + 2] + P[3 * i + 2]);
-    for (let k = 0; k < 6; k++) {
+    for (let k = 0; k < N_CHEST; k++) {
       const rx = chest[k][0] - mx;
       const ry = chest[k][1] - my;
       const rz = chest[k][2] - mz;
@@ -127,8 +179,8 @@ export function computeLeadField(model: CardiacModel, chest = precordialPosition
 }
 
 /**
- * Column sums (y = Σ W·x) → 15 output channels. `col` holds [Px,Py,Pz,V1..V6] (unscaled).
- * Writes [I, II, III, aVR, aVL, aVF, V1..V6, Px, Py, Pz] into `out` at offset `o`.
+ * Column sums (y = Σ W·x) → N_CHANNELS output channels. `col` holds [Px,Py,Pz,V1..V6,V3R..V9] (unscaled).
+ * Writes [I, II, III, aVR, aVL, aVF, V1..V6, Px, Py, Pz, V3R..V6R, V7..V9] into `out` at offset `o`.
  */
 export function columnsToChannels(col: ArrayLike<number>, limbGain: number, chestGain: number, out: Float32Array | number[], o = 0): void {
   const px = col[0] * limbGain;
@@ -149,4 +201,5 @@ export function columnsToChannels(col: ArrayLike<number>, limbGain: number, ches
   out[o + 12] = px;
   out[o + 13] = py;
   out[o + 14] = pz;
+  for (let k = 6; k < N_CHEST; k++) out[o + 9 + k] = col[3 + k] * chestGain - wct; // V3R … V9 → channels 15–21
 }

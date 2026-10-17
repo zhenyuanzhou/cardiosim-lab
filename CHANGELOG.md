@@ -1,5 +1,50 @@
 # Changelog
 
+## [1.5.0] — 2026-10-17
+
+Potassium and drug scenarios were wrong; acute ischaemia with culprit-vessel localisation and
+right-sided/posterior leads are new.
+
+### Potassium
+- New parameter **Extracellular potassium** (Parameters → Electrolytes). APD, conduction velocity and
+  AP amplitude follow the TP06 cell model; conduction now changes in atria, His–Purkinje system and
+  ventricles, so PR and QRS lengthen and the P wave changes.
+- The AP shape is **calibrated** so the T and U waves take their textbook form: TP06's own shape change,
+  mapped to the tissue, made the T wave only ≈ 20 % taller at 8 mM and produced no U wave at 3 mM.
+- Scenarios: hyperkalaemia 7.0 (peaked T), advanced hyperkalaemia 8.5 (peaked T, PR ≈ 218 ms,
+  QRS ≈ 150 ms) and hypokalaemia 3.0 (flat T, U wave larger than T, larger P).
+- Not reproduced: P-wave loss, sine wave, hypokalaemic ST depression.
+
+### Drugs
+- Dofetilide, quinidine and verapamil recalibrated to a randomised human study at clinical doses
+  (Johannesen et al. 2014). All of ΔQTc, ΔJ–Tpeak, ΔTpeak–Tend and ΔPR are within the published 95 % CIs.
+  The previous TP06-only versions under-predicted hERG-block QT prolongation about threefold and had
+  verapamil shortening QT by ≈ 80 ms (no significant change in man; PR +32 ms instead).
+
+### Acute ischaemia — new group F
+- Seven culprit lesions (Marriott Table 8.2): proximal LAD, main diagonal, mid-to-distal LAD,
+  non-dominant and dominant LCx, proximal RCA (with RV), distal RCA. Territories on the AHA 17-segment
+  model; the ischaemic territory is tinted on the 3-D heart.
+- Ischaemic AP from TP06 under phase-1a conditions (APD × 0.895, rest −86 → −70 mV, conduction × 0.448
+  at grade 3); the amplitude loss is calibrated to human 1-minute balloon occlusion (LAD 0.26 mV), and the
+  RCA and LCx values of the same study are reproduced without further tuning.
+- New parameter **Ischaemia grade** (Sclarovsky–Birnbaum 1–3): hyperacute T → + ST elevation → + QRS
+  distortion.
+
+### Leads
+- Right-sided V3R–V6R and posterior V7–V9 are computed for every rhythm. The 12-lead view has a
+  chest-lead switch (V1–V6 / Right / Posterior); scenarios select the useful set automatically.
+- Selected-lead mode and CSV export include all 19 leads.
+
+### Interface
+- The premature-beat controls now sit inside group B (Premature beats) instead of at the top of the
+  scenario list.
+
+### Tests
+- New: `tests/physiology/ischaemia.test.ts` (territories, seven culprit patterns, balloon-occlusion
+  magnitudes), potassium morphology tests, TP06 potassium-table checks, drug tests against the human
+  95 % CIs, extra-lead morphology.
+
 ## [1.4.0] — 2026-10-16
 
 Supraventricular tachycardias looked ventricular. Two separate causes, one specific to AVNRT and

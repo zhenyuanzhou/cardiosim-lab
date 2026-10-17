@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { clock, sim, useStore } from "../../state/store";
 import { fitCanvas, registerRenderer, seek, tokens } from "../frameLoop";
 import { CanvasPainter, SvgPainter, drawEcg, ecgCsv, layoutEcg, type EcgColors, type EcgViewOpts } from "./ecgRender";
-import { LEAD_NAMES } from "../../simulation/ecg-forward/leadField";
+import { ALL_LEAD_NAMES } from "../../simulation/ecg-forward/leadField";
 import { describeInstant } from "../../components/education/featureMap";
 import { MeasurementsTable } from "../../components/measurements/MeasurementsTable";
 import { EventLog } from "../timeline/EventLog";
@@ -37,7 +37,7 @@ export function ECGPanel() {
 
   const opts = (w: number, h: number): EcgViewOpts => {
     const s = useStore.getState();
-    return { mode: s.ecgLayout, paperSpeed: s.paperSpeed, gain: s.gain, leads: s.selectedLeads, zoom: zoomRef.current, width: w, height: h };
+    return { mode: s.ecgLayout, chestSet: s.chestSet, paperSpeed: s.paperSpeed, gain: s.gain, leads: s.selectedLeads, zoom: zoomRef.current, width: w, height: h };
   };
 
   useEffect(() => {
@@ -48,7 +48,7 @@ export function ECGPanel() {
       if (!data) return;
       const s = useStore.getState();
       const { w, h, dpr, resized } = fitCanvas(c);
-      const key = `${t.toFixed(1)}|${data.version}|${s.ecgLayout}|${s.paperSpeed}|${s.gain}|${s.selectedLeads.join()}|${zoomRef.current}|${s.inspectT}|${s.calipers.join()}|${s.theme}|${resized}|${w}x${h}|${s.compare ? 1 : 0}`;
+      const key = `${t.toFixed(1)}|${data.version}|${s.ecgLayout}|${s.chestSet}|${s.paperSpeed}|${s.gain}|${s.selectedLeads.join()}|${zoomRef.current}|${s.inspectT}|${s.calipers.join()}|${s.theme}|${resized}|${w}x${h}|${s.compare ? 1 : 0}`;
       if (key === last.current) return;
       last.current = key;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -127,6 +127,19 @@ export function ECGPanel() {
           <button className={st.ecgLayout === "12lead" ? "on" : ""} onClick={() => st.set({ ecgLayout: "12lead" })}>12-lead</button>
           <button className={st.ecgLayout === "leads" ? "on" : ""} onClick={() => st.set({ ecgLayout: "leads" })}>Selected leads</button>
         </div>
+        <div className="seg" role="group" aria-label="Chest leads">
+          {(
+            [
+              ["standard", "V1–V6", "Standard chest leads"],
+              ["right", "Right V3R–V6R", "Right-sided chest leads (mirror positions of V3–V6): right-ventricular involvement"],
+              ["posterior", "Posterior V7–V9", "Posterior leads at the V6 level: posterior-lateral (circumflex) involvement"],
+            ] as const
+          ).map(([k, label, title]) => (
+            <button key={k} className={st.chestSet === k ? "on" : ""} title={title} data-chest={k} onClick={() => st.set({ chestSet: k, ecgLayout: "12lead" })}>
+              {label}
+            </button>
+          ))}
+        </div>
         <div className="seg" role="group" aria-label="Paper speed">
           {[25, 50].map((v) => (
             <button key={v} className={st.paperSpeed === v ? "on" : ""} onClick={() => st.set({ paperSpeed: v as 25 | 50 })}>{v} mm/s</button>
@@ -150,14 +163,14 @@ export function ECGPanel() {
       </div>
       {st.ecgLayout === "leads" && (
         <div className="toolbar" style={{ padding: "4px 10px", borderBottom: "1px solid var(--line)" }}>
-          {LEAD_NAMES.map((l) => (
+          {ALL_LEAD_NAMES.map((l) => (
             <button
               key={l}
               className={`btn ${st.selectedLeads.includes(l) ? "on" : ""}`}
               style={{ padding: "2px 7px" }}
               onClick={() => {
                 const cur = st.selectedLeads;
-                const next = cur.includes(l) ? cur.filter((x) => x !== l) : [...cur, l].sort((a, b) => LEAD_NAMES.indexOf(a as never) - LEAD_NAMES.indexOf(b as never));
+                const next = cur.includes(l) ? cur.filter((x) => x !== l) : [...cur, l].sort((a, b) => ALL_LEAD_NAMES.indexOf(a as never) - ALL_LEAD_NAMES.indexOf(b as never));
                 st.set({ selectedLeads: next.length ? next : [l] });
               }}
             >

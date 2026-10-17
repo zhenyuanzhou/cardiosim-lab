@@ -55,6 +55,77 @@ Local APD90 of a cell is not the surface QT: the QT spans earliest ventricular a
   - use-dependent Na⁺-channel block is not modelled;
   - Ca²⁺-channel-blocker effects on the AV node are not modelled.
 
+## Potassium (recalibrated in v1.5.0)
+
+APD, conduction velocity and AP amplitude follow the TP06 cell model at the given [K⁺]o (table in
+`src/simulation/cellular/electrolytes.ts`, recomputed by `tests/physiology/ionic.test.ts`); conduction is
+now scaled in atria, His–Purkinje system and ventricles, which lengthens PR and QRS and changes the P wave.
+The **AP shape is calibrated**, not emergent. Mapped onto this tissue, TP06's own shape change barely
+alters the ECG: at 8 mM the T wave grew ≈ 20 % and did not narrow; at 3 mM no U wave appeared
+(`scripts/dev/k-try*.ts`). So:
+
+- phase-3 width = baseline × (TP06 width ratio)^γ, with γ = 3.6 above and 2.4 below 5.4 mM;
+- below 5.4 mM a slow terminal repolarisation component (up to 45 % of the plateau, delayed by up to
+  30 % of the APD) inscribes the U wave — U waves arise from small voltage differences between AP tails
+  (Ritsema van Eck et al. 2005); its size was set so that at 3.0 mM the U wave exceeds the flattened
+  T wave (Marriott's "T–U reversal"), and it fuses with the T wave at milder levels.
+
+What this does and does not reproduce:
+- Hyperkalaemia 7.0 mM: T 1.35–1.6× taller in V2–V4, T slope/amplitude ratio up ≈ 10–25 % (the dialysis
+  relation of Corsi et al. 2017 implies ≈ × 2 between 5.4 and 8 mM — not reached, because T-wave width
+  here is set mainly by the spatial dispersion of repolarisation, which K⁺ barely changes in TP06),
+  PR +20 ms, QRS +20 ms, P lower.
+- Hyperkalaemia 8.5 mM: PR ≈ 218 ms, QRS ≈ 150 ms, P only ≈ 16 % lower — **P-wave loss (atrial
+  standstill) is not reproduced**: atrial myocytes are more K⁺-sensitive than ventricular ones, and only a
+  ventricular cell model is available. The wide QRS brings biphasic T waves in II and V5–V6, because this
+  engine has no coupling between activation time and APD that would partly compensate the slower
+  activation. Sine-wave patterns are not reproduced.
+- Hypokalaemia 3.0 mM: flat T, prominent U wave larger than T in V2–V4, larger P wave, QT(U) longer.
+  ST depression is not reproduced; PR does not lengthen (TP06 conduction is slightly faster).
+- Clinically the K⁺–ECG relationship is weak (T-wave amplitude r ≤ 0.2 with serum K⁺ in routine ECGs,
+  Kim et al. 2018; hyperkalaemic changes in only ≈ 46 % of patients at 6–9.3 mmol/L). The scenarios show
+  the textbook pattern, not a predicted dose–response.
+- 5.4 mmol/L is TP06's reference [K⁺]o and lies at the upper end of the normal serum range.
+
+## Drugs (recalibrated in v1.5.0)
+
+Dofetilide, quinidine and verapamil are now calibrated to a randomised human study at clinical doses
+(Johannesen et al., Clin Pharmacol Ther 2014;96:549, n = 22, placebo-corrected): the model reproduces
+ΔQTc, ΔJ–Tpeak, ΔTpeak–Tend and ΔPR within the published 95 % CIs (QT +78, +80, +4 ms; PR +32 ms for
+verapamil). The previous TP06-derived scenarios were wrong against these data: hERG block prolonged QT
+about three times too little, and verapamil *shortened* QT by ≈ 80 ms where man shows no significant
+change (its clinical effect is PR prolongation, 32 ms). The calibration uses a uniform APD shift, a
+slower phase 3 and, for verapamil, a longer AV-nodal conduction time. T-wave notching under dofetilide
+and quinidine is not reproduced. Flecainide still uses the TP06 mapping (no matched human study here).
+The generic "IKr inhibition" scenarios also still use TP06 and therefore under-predict QT prolongation.
+
+## Acute ischaemia (new in v1.5.0)
+
+- Territories are the standard AHA 17-segment vessel assignment (Cerqueira et al. 2002) on the idealised
+  heart, extended to Marriott's seven culprit risk areas (Table 8.2); real coronary anatomy varies.
+- AP changes at the centre of the territory: APD × 0.895, conduction × 0.448 (grade 3 only), resting
+  potential +15.5 mV — TP06 under phase-1a conditions (Ko 9.9 mM, INa and ICaL × 0.85). The APD change
+  matches human MAPs during LAD balloon occlusion (× 0.91, Taggart et al. 1996).
+- The **AP-amplitude loss is calibrated** (× 0.655 instead of TP06's × 0.781) so that the mean of the
+  proximal- and mid-LAD maximal ST shifts equals the LAD median of 1-minute balloon occlusion
+  (0.26 mV, Haeberlin et al. 2014). The RCA (0.20 mV in III) and LCx (0.04 mV in V6) values of the same
+  study are reproduced without further tuning (0.15/0.12 and 0.08 mV). TP06 lacks IK,ATP.
+- Lead patterns of all seven culprit areas follow Table 8.2, with one deliberate exception: for a
+  proximal RCA lesion the model shows ST *elevation* in V1 ≥ V2 (right-ventricular involvement, as in
+  Marriott's text and Fig. 8.8), not the V1–V3 depression listed in the table.
+- The maximal ST shift of LAD ischaemia falls in V4–V5, where human data put it in V3 — a consequence
+  of the model's poor precordial R-wave progression.
+- ST elevation in V4R with a proximal RCA lesion is ≈ 0.06 mV, below the clinical 0.1 mV criterion for
+  RV infarction; the idealised RV free wall is thin.
+- Only the acute phase: no necrosis, Q waves, T-wave inversion, reperfusion or evolution, and no
+  subendocardial (ST-depression) ischaemia.
+
+## Extra chest leads (new in v1.5.0)
+
+V3R–V6R are the mirror positions of V3–V6; V7 (posterior axillary), V8 (mid-scapular, 80 mm from the
+midline) and V9 (left paraspinal, 30 mm) lie on the back of the idealised elliptical chest at the V6
+level. The back positions are nominal. All extra leads use the same infinite-medium lead field as V1–V6.
+
 ## Measurement rules (arrhythmia-aware)
 
 - **PR** is reported only when the model confirms that the P wave and the QRS belong to the same antegradely conducted impulse. It is suppressed for:
