@@ -17,7 +17,7 @@
  */
 import { DEFAULT_PARAMS, cloneParams, type SimParams } from "../core/params";
 import { CALCIUM_REFERENCE, calciumApdShift, potassiumEffect } from "../cellular/electrolytes";
-import { CULPRIT_LABELS, CULPRIT_TERRITORY, type Culprit } from "../core/ischaemia";
+import { CULPRIT_LABELS, CULPRIT_TERRITORY, type Culprit, type InfarctPhase } from "../core/ischaemia";
 import { DRUG_BY_ID, drugMods } from "../cellular/drugs";
 
 export type ScenarioStatus = "validated" | "incomplete" | "partial" | "placeholder" | "unsupported";
@@ -38,7 +38,7 @@ export interface Criteria {
 export interface Scenario {
   id: string;
   name: string;
-  group: "Baseline" | "A · Brady/conduction" | "B · Premature beats" | "C · Supraventricular" | "D · Ventricular" | "E · Ionic/drug" | "F · Ischaemia (culprit vessel)" | "Conduction (BBB)";
+  group: "Baseline" | "A · Brady/conduction" | "B · Premature beats" | "C · Supraventricular" | "D · Ventricular" | "E · Ionic/drug" | "F · Ischaemia & infarction" | "Conduction (BBB)";
   status: ScenarioStatus;
   modelClass: ModelClass;
   criteria: Criteria;
@@ -169,7 +169,7 @@ function ischaemiaScenario(culprit: Exclude<Culprit, "none">): Scenario {
   return {
     id: `isch-${culprit}`,
     name: `Acute ischaemia — ${CULPRIT_LABELS[culprit]}`,
-    group: "F · Ischaemia (culprit vessel)",
+    group: "F · Ischaemia & infarction",
     status: "partial",
     modelClass: "reduced-order",
     criteria: { ...ALL, mechanism: false },
@@ -181,11 +181,87 @@ function ischaemiaScenario(culprit: Exclude<Culprit, "none">): Scenario {
     ecg: e.st + (e.note ? ` ${e.note}` : ""),
     initiation: "Immediate (the state after about one minute of occlusion).",
     limitations:
-      "Partial. Territories are the standard AHA vessel assignment on an idealised heart, not individual coronary anatomy. The size of the ST shift is calibrated to 1-minute balloon occlusion in man (LAD median 0.26 mV, Haeberlin et al. 2014); established STEMI is often larger. TP06 has no ATP-sensitive K⁺ current, hence the calibrated amplitude loss. Only the acute phase is modelled — no necrosis, Q waves or T-wave inversion, and no reperfusion. The model's precordial R-wave progression is poor (SCIENTIFIC_LIMITATIONS.md), which affects the baseline QRS but not the direction of the ST changes.",
+      "Partial. Territories are the standard AHA vessel assignment on an idealised heart, not individual coronary anatomy. The size of the ST shift is calibrated to 1-minute balloon occlusion in man (LAD median 0.26 mV, Haeberlin et al. 2014); established STEMI is often larger. TP06 has no ATP-sensitive K⁺ current, hence the calibrated amplitude loss. This scenario is the acute phase; the hyperacute, evolving, subacute and old phases are separate scenarios in this group, and the phase can be changed for any culprit in Parameters. There is no reperfusion and no clock — a phase is a state you select, not a process. The model's precordial R-wave progression is poor (SCIENTIFIC_LIMITATIONS.md), which affects the baseline QRS but not the direction of the ST changes.",
     validation: `Automated test: "ischaemia ${culprit}" (tests/physiology/ischaemia.test.ts).`,
     leads: e.leads,
     chestSet: e.chest,
-    apply: P((p) => (p.ischaemia = { culprit, grade: 2 })),
+    apply: P((p) => (p.ischaemia = { culprit, grade: 2, phase: "acute" })),
+  };
+}
+
+/**
+ * The same culprit lesion carried through the phases of infarction (core/ischaemia.ts). Marriott ch. 9:
+ * "As the process of ischemia transitions to infarction, T waves decrease in amplitude (later becoming
+ * negative); Q waves develop; and ST segments decrease in amplitude." Three weights move independently
+ * with the phase — how much injury current is left (ST), how much of the territory is necrotic (Q), and
+ * how much extra APD the surviving peri-infarct tissue carries (T inversion). Necrosis spreads from the
+ * subendocardium outwards, the wavefront phenomenon (Reimer & Jennings, Circulation 1977;56:786).
+ */
+const PHASE_TEXT: Record<Exclude<InfarctPhase, "acute">, { label: string; when: string; mechanism: string; ecg: string }> = {
+  hyperacute: {
+    label: "hyperacute",
+    when: "Minutes after occlusion, before any muscle has died.",
+    mechanism:
+      "The earliest change is repolarisation, not depolarisation: the ischaemic APD shortens, so the territory repolarises first and the T vector points towards it, giving tall broad-based T waves while the injury current — and with it the ST elevation — is still building.",
+    ecg: "Tall, broad hyperacute T waves over the territory with only modest ST elevation; no Q waves.",
+  },
+  evolving: {
+    label: "evolving",
+    when: "Hours after occlusion; the subendocardial half of the territory has died.",
+    mechanism:
+      "Necrosis has reached about half-way across the wall. Dead muscle generates no action potential, so the forces that used to arise from it are missing and the initial QRS vector points away from the infarct — the Q wave. The surviving epicardial rim is still injured, so some ST elevation remains, and the T is falling.",
+    ecg: "Q waves appear over the territory, ST elevation is about half its acute size, and the T wave is smaller.",
+  },
+  subacute: {
+    label: "subacute",
+    when: "Days after occlusion; necrosis nearly complete, the surviving border repolarising late.",
+    mechanism:
+      "Almost all the territory is dead and the injury current has gone, so the ST segment returns to the baseline. The surviving peri-infarct myocardium repolarises late, which reverses the T vector: the T wave inverts in the leads that face the infarct.",
+    ecg: "Q waves with an isoelectric ST segment and deep symmetrical T-wave inversion over the infarct.",
+  },
+  old: {
+    label: "old",
+    when: "Weeks to months after the infarct — the healed scar.",
+    mechanism:
+      "The scar is electrically silent but still conducts (surviving subendocardial Purkinje fibres and intramural strands), so the Q wave is permanent. The peri-infarct repolarisation delay has largely resolved, so the T wave becomes upright again.",
+    ecg: "Pathological Q waves alone: ST at the baseline and upright T waves. The Q wave is the only lasting sign.",
+  },
+};
+/** Measured on the simulated ECG (scripts/dev/infarct-phases.ts), mm. */
+const PHASE_MEASURED: Partial<Record<string, string>> = {
+  "lad-prox:hyperacute": "T +6.1 in V3 and +5.8 in V4 with ST only +0.8 to +1.2 mm; no Q wave. QT 366 ms, QRS 90 ms.",
+  "lad-prox:evolving": "Q −6.4 in V4, −3.1 in aVL, −2.3 in I; ST down to +0.6 in V4; T +2.4 in V4 (was +6.4). QRS 88 ms.",
+  "lad-prox:subacute": "Q −6.8 in V4, −3.3 in aVL; ST +0.2; T −1.4 in V4, −1.1 in aVL, −0.6 in I. QT 494 ms.",
+  "lad-prox:old": "Q −6.8 in V4, −3.3 in aVL unchanged; ST +0.1; T upright again (+2.1 in V4). QT 392 ms.",
+  "rca-distal:hyperacute": "T +1.6 in III and +1.5 in aVF with ST +0.7 in III; reciprocal T −1.0 in aVL.",
+  "rca-distal:evolving": "Q −3.0 in III, −1.9 in aVF; ST +0.3 in III; T +0.8 in III.",
+  "rca-distal:subacute": "Q −4.2 in III, −2.3 in aVF; ST at the baseline; T −1.0 in III, −0.5 in aVF. QT 454 ms.",
+  "rca-distal:old": "Q −4.3 in III, −2.3 in aVF; ST 0; T upright (+0.9 in III).",
+};
+function infarctScenario(culprit: Exclude<Culprit, "none">, phase: Exclude<InfarctPhase, "acute">): Scenario {
+  const t = CULPRIT_TERRITORY[culprit];
+  const e = ISCH_ECG[culprit];
+  const ph = PHASE_TEXT[phase];
+  const measured = PHASE_MEASURED[`${culprit}:${phase}`];
+  return {
+    id: `mi-${culprit}-${phase}`,
+    name: `Infarct, ${ph.label} — ${CULPRIT_LABELS[culprit]}`,
+    group: "F · Ischaemia & infarction",
+    status: "partial",
+    modelClass: "reduced-order",
+    criteria: { ...ALL, mechanism: false },
+    mechanism: ph.mechanism,
+    structures: `AHA segments ${t.segments.join(", ")}${t.rv ? " and the right-ventricular free wall" : ""}; necrosis spreads from the subendocardium outwards within that territory.`,
+    changes: `Culprit ${CULPRIT_LABELS[culprit]}, grade 2, phase "${phase}". The phase sets three weights: how much injury current remains (ST), the necrotic fraction of the wall (Q) and the extra peri-infarct APD (T). Change the phase in Parameters to step through the whole sequence.`,
+    activation: phase === "hyperacute" ? "Unchanged." : "The necrotic core is electrically silent and conducts at CV × 0.3, so the territory activates late and contributes nothing to the QRS.",
+    ecg: `${ph.ecg} ${e.st.replace(/^ST elevation/, "The territory is seen in")} ${measured ? `Measured here: ${measured}` : ""}`.trim(),
+    initiation: ph.when,
+    limitations:
+      "Partial. The phase is a state you select, not a process: the model has no clock for healing and the weights are nominal interpolations of the described sequence. Q waves do not appear in V2–V3, where an anterior infarct should show them most clearly, because those leads are dominated by a deep S in this model's poor R-wave progression — there is no R for the infarct to remove. The peri-infarct APD boost needed to invert the T at all also stretches QT to about 490 ms in the subacute phase, longer than a typical healing infarct. No reperfusion, no ventricular aneurysm (persistent ST elevation) and no subendocardial (non-Q-wave) infarction as a separate entity. See SCIENTIFIC_LIMITATIONS.md (\"Infarct phases\").",
+    validation: `Automated test: "infarct phases ${culprit}" (tests/physiology/ischaemia.test.ts).`,
+    leads: e.leads,
+    chestSet: e.chest,
+    apply: P((p) => (p.ischaemia = { culprit, grade: 2, phase })),
   };
 }
 
@@ -913,29 +989,43 @@ export const SCENARIOS: Scenario[] = [
     id: "tdp",
     name: "Torsades de pointes",
     group: "D · Ventricular",
-    // "incomplete": the mechanism runs and is tested, but the ECG morphology is NOT faithful —
-    // the complexes stay discrete instead of merging into continuous undulation. See limitations.
-    status: "incomplete",
+    // "partial": the mechanism and every measured ECG feature now match the literature except the
+    // spindle length and complex smoothness; the source is still imposed, not emergent. See below.
+    status: "partial",
     modelClass: "reduced-order",
-    criteria: { ...ALL, mechanism: false, ecg: false },
+    criteria: { ...ALL, mechanism: false },
     mechanism:
-      "A run of triggered beats whose site of origin migrates around the ventricles, one step per beat along a seven-site path. Because each beat starts somewhere new the activation direction turns progressively, the QRS axis with it, and the amplitude in any one lead swells and collapses as the axis sweeps through that lead's null. This is a reduced-order stand-in for a DRIFTING ROTOR: current optical-mapping and simulation work attributes the undulating axis of torsades to drift of a spiral wave (a Doppler effect), with the arrhythmia initiated by an EAD-triggered beat and maintained by re-entry in a substrate of inhomogeneous repolarisation. Each run here begins after a short–long–short sequence, at a coupling interval of 390 ms — the EAD takeoff time measured in the TP06 cell.",
-    structures: "Ventricular myocardium on a long-QT substrate; the origin migrates across RVOT, LV anterobasal, lateral, inferobasal, LV apex, RV apex and septum.",
-    changes: "Ventricular APD × 1.08 (long-QT substrate), ERP/APD ratio 0.85 (default 0.92 — lowered so that every beat of the run captures rather than every other one; both values are nominal), and the torsades generator on: cycle length 340 ms, one site per beat, 36-beat runs every 10th sinus beat, coupling 390 ms.",
-    activation: "Every beat captures the ventricles (measured 100 % capture) from a site that moves one step further around the heart.",
-    ecg: "Recurrent self-terminating runs at ≈ 176 /min on a prolonged QT. Once the run is established the tracing is continuous — no isoelectric baseline between complexes — and the lead II amplitude waxes and wanes repeatedly, about ten envelope cycles per run with a 5-fold swing between the largest and smallest complexes, the deflections inverting as the axis passes through the lead's null.",
-    initiation: "Automatic and recurrent, each run preceded by a short–long–short sequence.",
+      "Initiation is focal and perpetuation re-entrant, as the mapping studies describe. A long–short sequence (a long–short ventricular cycle preceded 41 of 44 episodes, Kay et al. 1983) is followed by an EAD-triggered beat at 390 ms — the takeoff time measured in the TP06 cell. The run is then carried by a source that travels around a circumferential ring of mid-wall sites, one step per beat, re-exciting each site AS SOON AS THAT TISSUE HAS RECOVERED. That one rule, rather than an imposed schedule, sets the rate (local refractoriness on the long-QT substrate), keeps a wavefront present at all times (so the tracing never returns to the isoelectric line — during re-entrant torsades excitation fronts are constantly present, against a ≈ 142 ms silent interval in focal torsades, Vandersickel et al. 2017), and ends the run when no site recovers in time. A second loop on the far side of the ring turning the other way represents the paired circuits of the longer episodes (2.7 ± 1.5 simultaneous loops in non-terminating episodes against 1.3 ± 0.7 in self-terminating ones, Van Den Abeele et al. 2023); because the two vectors never cancel completely the amplitude waxes and wanes instead of vanishing. Drift of the source is what makes the axis undulate: nonstationary scroll waves give undulating ECGs, stationary ones monomorphic (Gray et al., Circulation 1995).",
+    structures: "Ventricular myocardium on a long-QT substrate with increased dispersion of repolarisation; a 16-site mid-wall ring around the ventricles carries the drifting source.",
+    changes:
+      "Ventricular APD × 1.3 and the transmural and apicobasal gradients × 2.6 (long QT with increased dispersion of repolarisation — the measured torsades substrate, Kozhevnikov et al. 2002), and the M-cell island × 3, the enlarged zone of long refractoriness of the LQT2 wedge. " +
+      "Torsades generator on: 16-site ring, source advancing 0.6 of a step per beat, re-excitation 10 ms after local recovery, paired loop at 45 ms, runs of up to 34 beats every 10th sinus beat, first beat at 390 ms. " +
+      "Two restitution parameters are changed for the run and are NOMINAL, tuned so that the simulated tracing meets the measured torsades criteria rather than derived from data: the APD floor 0.45 → 0.5 (the period of the circulating source) and the depth of CV restitution 0.5 → 0.85, which at the ~10 ms diastolic intervals of the run slows conduction to about 39 % of normal. Conduction does slow steeply near the point of block, but this value is not calibrated. The ERP/APD ratio is left at its default 0.92 — unlike v1.3–v1.5, nothing is tuned to obtain capture.",
+    activation: "Each beat is activated from 0.6 of a step further around the ring, while the previous wavefront is still propagating elsewhere; at 211 ms per activation against a 265 ms cycle, successive activations overlap.",
+    ecg:
+      "A long–short sequence, then a self-terminating polymorphic run of about 16 beats over 4.3 s. Measured on the simulated ECG (scripts/dev/tdp-tune.ts): rate 226 /min (reported range 180–250), a continuous tracing that is at the isoelectric line only 5 % of the time (sinus rhythm 73 %, monomorphic VT 24 %, VF 4 %), beat-to-beat frontal axis sweeping 260° so the deflections twist from above to below the baseline, amplitude waxing and waning through a 22-fold swing with one spindle node in the run, and a mean ventricular activation span of 211 ms so successive complexes merge into an undulation.",
+    initiation: "Automatic and recurrent: every 10th sinus beat a triggered beat fires, and its compensatory pause provides the long cycle before the run.",
     limitations:
-      "Marked incomplete because the morphology is only partly faithful. The waxing and waning is reproduced, but the individual complexes are sharper and more fragmented than the broad, smooth deflections of a real recording, and the rate sits at the slow edge of the clinical range: organised ventricular capture fails above ≈ 176 /min on a long-QT substrate in this engine (driving faster blocks every other beat — measured 50 % capture at cycle lengths of 130–300 ms), whereas torsades is usually 200–250 /min. Getting every beat to capture also required lowering the ERP/APD ratio from 0.92 to 0.85; both are nominal values, but it is a tuning choice made to obtain the appearance, not a measurement. " +
-      "The mechanism is also imposed rather than emergent: the migrating origin stands in for a drifting rotor the engine cannot produce, and the foci are not generated by the long QT — the same generator on a normal-QT substrate behaves much the same, so this cannot be used to predict torsade risk. Two other routes were tried and failed: a late-coupled R-on-T beat never initiated re-entry in any of 30 combinations, and burst-induced re-entry on a long-QT substrate gave randomly polymorphic rhythms at fibrillation rates (166–200 ms). Those attempts are recorded in docs/SCIENTIFIC_LIMITATIONS.md.",
+      "Partial. The source is imposed, not emergent: the ring stands in for a drifting rotor, which this engine cannot grow. v1.6.0 re-examined that directly rather than assuming it. The M-cell island the mapping studies name as the obstacle was added to the model, and capture was then scanned over coupling interval, island size and amplitude, electrotonic smoothing and conduction velocity. Capture turned out to be all-or-nothing — 0 % of the ventricle at a 415 ms coupling interval, 100 % at 435 ms — with no interval in between that leaves a surviving line of block. The reason was measured: the recovery front sweeps the ventricle in about 140 ms (96 % of it refractory at 374 ms, none at 514 ms) whereas a premature wave needs 250–280 ms to cross it, so whatever is refractory when the beat starts has recovered before the wavefront reaches it. Functional re-entry needs an obstacle that persists for a whole lap, and in a real heart that obstacle is the rotor core held open by wavefront curvature — source–sink physics this event-driven graph does not represent. Only anatomical obstacles work here, which is why flutter and scar VT are validated and this is not. " +
+      "Consequences: the run does not arise from the long QT — the same generator on a normal-QT substrate still runs — so this scenario cannot be used to predict torsade risk, only to show what the mechanism looks like on the surface ECG. Two further routes were tried and failed, and are recorded with the numbers in SCIENTIFIC_LIMITATIONS.md: two competing fixed foci gave a continuous tracing at 231 /min but only a 177° two-state axis flip rather than a progressive twist, and a source that always moved to the globally best-recovered site locked into a two-site ping-pong. " +
+      "Of the measured criteria, one still falls outside its target: the complexes carry 3.3 local extrema each against the 1–3 of a smooth recording, so they remain slightly more fragmented than a real tracing. Spindle length (one node per run of 16 beats), rate, continuity, envelope and axis sweep are now all within range.",
     validation: T("torsades de pointes"),
     leads: ["II", "V1", "V5"],
     apply: P((p) => {
-      p.ventricles.apd = Math.round(p.ventricles.apd * 1.08);
-      p.ventricles.transmuralGradient = Math.round(p.ventricles.transmuralGradient * 1.08);
-      p.ventricles.apicobasalGradient = Math.round(p.ventricles.apicobasalGradient * 1.08);
-      p.ventricles.erpRatio = 0.85;
-      p.torsades = { enabled: true, siteA: "rvot", cycleA: 340, drift: 1, beats: 36, every: 10, coupling: EAD_COUPLING };
+      // long-QT substrate with increased dispersion of repolarisation — the measured torsades
+      // substrate (increased transmural dispersion: Kozhevnikov et al., Circulation 2002)
+      p.ventricles.apd = Math.round(p.ventricles.apd * 1.3);
+      p.ventricles.transmuralGradient = Math.round(p.ventricles.transmuralGradient * 2.6);
+      p.ventricles.apicobasalGradient = Math.round(p.ventricles.apicobasalGradient * 2.6);
+      // M-cell island: the zone of long refractoriness the mapping studies hold responsible for the
+      // block (Akar et al., Circulation 2002;105:1247). Present at baseline; enlarged here, as in LQT2.
+      p.ventricles.mCellBoost = Math.round(p.ventricles.mCellBoost * 3);
+      // Restitution during the run. apdFloor sets the period of the circulating source; the deep CV
+      // restitution makes each activation take 211 ms, so successive complexes overlap into a
+      // continuous undulation instead of discrete spikes. Both are nominal — see `changes`.
+      p.restitution.apdFloor = 0.5;
+      p.restitution.cvAmplitude = 0.85;
+      p.torsades = { enabled: true, drift: 0.6, ringSize: 16, margin: 10, pairOffset: 45, beats: 34, every: 10, coupling: EAD_COUPLING };
     }),
   },
   {
@@ -1061,6 +1151,14 @@ export const SCENARIOS: Scenario[] = [
   ischaemiaScenario("lcx-dominant"),
   ischaemiaScenario("rca-prox"),
   ischaemiaScenario("rca-distal"),
+  infarctScenario("lad-prox", "hyperacute"),
+  infarctScenario("lad-prox", "evolving"),
+  infarctScenario("lad-prox", "subacute"),
+  infarctScenario("lad-prox", "old"),
+  infarctScenario("rca-distal", "hyperacute"),
+  infarctScenario("rca-distal", "evolving"),
+  infarctScenario("rca-distal", "subacute"),
+  infarctScenario("rca-distal", "old"),
 ];
 
 /** Machine-readable export (used by scripts/export-registry.ts). */

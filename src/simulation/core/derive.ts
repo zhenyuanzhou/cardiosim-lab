@@ -7,6 +7,7 @@ import type { RetroMode, SimParams } from "./params";
 import { NODAL, apdInfFromRef } from "../cellular/actionPotential";
 import { calciumApdShift, potassiumEffect } from "../cellular/electrolytes";
 import { ischaemiaModifiers } from "./ischaemia";
+import { mCellWeights } from "./mcells";
 import { Rng } from "./rng";
 
 /** Nominal autonomic sensitivity coefficients (NOT data-derived; see params metadata). */
@@ -42,6 +43,8 @@ export interface Derived {
   restShift: Float32Array;
   /** Per-node ischaemic weight 0…1 (null when no ischaemia). */
   ischaemia: Float32Array | null;
+  /** Nodes that are necrotic: no action potential, no conduction (null when none). */
+  dead: Uint8Array | null;
 }
 
 /**
@@ -205,12 +208,14 @@ export function derive(model: CardiacModel, p: SimParams): Derived {
 
   // ---- APD maps ----------------------------------------------------------------
   const apdRef = new Float32Array(n);
+  const mWeight = mCellWeights(model, { transmuralSd: 0.33, phiSd: p.ventricles.mCellPhiSd, longSd: p.ventricles.mCellLongSd, floor: 0.25 });
   const erpRatio = new Float32Array(n);
   const v = p.ventricles;
   for (let i = 0; i < n; i++) {
     switch (model.cellType[i]) {
       case CT.VENTRICULAR:
-        apdRef[i] = v.apd + v.transmuralGradient * (0.5 - model.transmural[i]) + v.apicobasalGradient * (model.apicobasal[i] - 0.5);
+        apdRef[i] =
+          v.apd + v.transmuralGradient * (0.5 - model.transmural[i]) + v.apicobasalGradient * (model.apicobasal[i] - 0.5) + v.mCellBoost * mWeight[i];
         erpRatio[i] = v.erpRatio;
         break;
       case CT.ATRIAL:
@@ -238,7 +243,7 @@ export function derive(model: CardiacModel, p: SimParams): Derived {
   const caShift = calciumApdShift(p.electrolytes.serumCalcium);
   if (caShift !== 0) for (let i = 0; i < n; i++) if (model.cellType[i] === CT.VENTRICULAR) apdRef[i] = Math.max(60, apdRef[i] + caShift);
   // potassium (TP06 APD scale, ventricles) and regional ischaemia (TP06 under phase-1a conditions)
-  for (let i = 0; i < n; i++) if (model.cellType[i] === CT.VENTRICULAR) apdRef[i] *= kEff.apdScale * isch.apd[i];
+  for (let i = 0; i < n; i++) if (model.cellType[i] === CT.VENTRICULAR) apdRef[i] = apdRef[i] * kEff.apdScale * isch.apd[i] + isch.apdAdd[i];
   // substrate-specific repolarisation
   for (let i = 0; i < n; i++) {
     if (sub.cti[i]) apdRef[i] *= p.atria.ctiApdFactor;
@@ -262,6 +267,7 @@ export function derive(model: CardiacModel, p: SimParams): Derived {
     apAmp: isch.amp,
     restShift: isch.rest,
     ischaemia: isch.field,
+    dead: isch.dead,
   };
 }
 

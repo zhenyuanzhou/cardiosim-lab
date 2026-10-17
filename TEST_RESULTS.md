@@ -1,15 +1,16 @@
-# Test results — v1.5.0
+# Test results — v1.6.0
 
-Run on the v1.5.0 code base (headless Chromium 1194 for end-to-end tests).
+Run on the v1.6.0 code base (headless Chromium 1194 for end-to-end tests).
 
-## Unit / physiology (`npx vitest run`): 104 / 104 passed
+## Unit / physiology (`npx vitest run`): 114 / 114 passed
 
 | File | Tests | Covers |
 |---|---|---|
 | tests/physiology/normalSinus.test.ts | 12 | NSR intervals vs reference ranges, lead identities (Einthoven, Goldberger, WCT), activation order |
 | tests/physiology/rateDependence.test.ts | 4 | Rate → QT and AV-nodal conduction, vagal effects |
 | tests/simulation/engine.test.ts | 12 | Determinism, checkpoint/restore replay, parameter changes only after t, AV-nodal block, escape rhythms, premature activation, refractoriness |
-| tests/physiology/ischaemia.test.ts | 10 | v1.5.0: AHA territories; ST patterns of Marriott's seven culprit risk areas (incl. V4R, V7–V8); ST size vs human balloon occlusion (LAD calibrated; RCA and LCx independent) |
+| tests/physiology/ischaemia.test.ts | 15 | v1.5.0: AHA territories; ST patterns of Marriott's seven culprit risk areas (incl. V4R, V7–V8); ST size vs human balloon occlusion (LAD calibrated; RCA and LCx independent). v1.6.0: the five phases of infarction for a proximal LAD and a distal RCA — T tall then inverted then upright, ST building then falling to the baseline, Q waves appearing and permanent; QRS stays narrow (dead tissue silent but conducting); the TP segment stays flat in every lead once tissue is removed from the lead field |
+| tests/physiology/mcells.test.ts | 4 | v1.6.0: the M-cell zone is ventricular only, peaks mid-wall and is an island bounded in the plane of the wall rather than a layer; APD rises monotonically with the boost; Tpeak–Tend stays in the human range and the QRS is untouched |
 | tests/ecg/ecg.test.ts | 12 | Forward model and measurement pipeline; v1.4.0: sinus QRS amplitudes within ×2 of six population medians, restated QRS-onset coherence (earliest lead ≤ 10 ms, every lead ≤ 30 ms) |
 
 ### Added in v1.1.0 (13 tests in tests/physiology/scenarios.test.ts)

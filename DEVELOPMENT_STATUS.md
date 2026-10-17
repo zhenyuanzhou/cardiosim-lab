@@ -16,8 +16,8 @@
 | Status | Count |
 |---|---|
 | Validated (all 8 criteria, automated test) | 25 |
-| Implemented but incomplete (RBBB axis; pre-Phase-2b items fixed) | 1 |
-| Partially simulated (focal VT; 7 TP06-mapped ionic/drug scenarios) | 8 |
+| Implemented but incomplete (RBBB axis) | 1 |
+| Partially simulated (focal VT, TP06-mapped ionic/drug scenarios, ischaemia and infarction by culprit vessel and phase, torsades) | 35 |
 | Unsupported (labelled, not runnable) | 8 |
 | Placeholder | 0 |
 

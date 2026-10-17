@@ -1,28 +1,66 @@
-/** Tune cycle-length difference and run length for a full, consistent twist at 200-250/min. */
-import { buildCardiacModel } from "../../src/simulation/tissue/buildModel";
-import { Simulator } from "../../src/simulation/core/engine";
-import { sanitizeParams, DEFAULT_PARAMS, cloneParams } from "../../src/simulation/core/params";
-import { computeLeadField } from "../../src/simulation/ecg-forward/leadField";
-import { analyseMorphology } from "../../src/simulation/ecg-forward/morphology";
-const m = buildCardiacModel(); const W = computeLeadField(m);
-for (const [A,B] of [["rv-apex","lv-anterobasal"],["lv-lateral","septum"]] as const)
-for (const ca of [320,340,360])
-for (const d of [3,5,7])
-for (const beats of [14,18]) {
-  const p=cloneParams(DEFAULT_PARAMS);
-  p.ventricles.apd=Math.round(300*1.173); p.ventricles.transmuralGradient=Math.round(25*1.173); p.ventricles.apicobasalGradient=Math.round(-30*1.173);
-  p.torsades={enabled:true,siteA:A as never,siteB:B as never,cycleA:ca,cycleB:ca+d,beats,every:9,coupling:390};
-  const sim=new Simulator(m,sanitizeParams(p as unknown as Record<string,unknown>),W);
-  sim.run(22000); const o=sim.drain();
-  const tw=o.waves.filter(w=>w.site==="torsades focus"&&Number.isFinite(w.tFirstVent)).map(w=>w.tFirstVent).sort((a,b)=>a-b);
-  const eps:number[][]=[];let cur:number[]=[];
-  for(const t of tw){if(cur.length&&t-cur[cur.length-1]>900){eps.push(cur);cur=[];}cur.push(t);}
-  if(cur.length)eps.push(cur);
-  const r=eps.filter(e=>e.length>=8)[0]; if(!r){console.log(`${A}+${B} ${ca}/+${d}: no run`);continue;}
-  const merged:number[]=[]; for(const t of r) if(!merged.length||t-merged[merged.length-1]>80) merged.push(t);
-  const iv=merged.slice(1).map((t,i)=>t-merged[i]); const cl=iv.reduce((a,b)=>a+b,0)/iv.length; const rate=60000/cl;
-  const mo=analyseMorphology(o.ecg,sim.dt,r);
-  const span=Math.max(...mo.axes)-Math.min(...mo.axes);
-  const ok = rate>=180&&rate<=260 && mo.rotationConsistency>=0.7 && span>=90;
-  console.log(`${(A+"+"+B).padEnd(24)} ${ca}/+${d}: beats=${merged.length} CL=${cl.toFixed(0)} (${rate.toFixed(0)}/min) span=${span.toFixed(0)}° rot=${mo.meanRotation.toFixed(0)}°/b cons=${(100*mo.rotationConsistency).toFixed(0)}%${ok?"  <== TdP":""}`);
+/**
+ * Tune the torsades generator against the quantitative criteria in ecg-forward/tdpMetrics.ts.
+ * usage: tsx tdp-tune.ts <floors> <drifts> <pairOffsets> <ringSizes> [margins] [apd]
+ */
+import { SCENARIOS } from "../../src/simulation/scenarios/scenarios";
+import { run } from "../../tests/helpers/sim";
+import { tdpMetrics, runWindow, type TdpMetrics } from "../../src/simulation/ecg-forward/tdpMetrics";
+import type { SimParams } from "../../src/simulation/core/params";
+
+const base = SCENARIOS.find((x) => x.id === "tdp")!.apply!;
+
+export function measure(edit: (p: SimParams) => void, ms = 24000): { m: TdpMetrics; run: number } {
+  const p = base();
+  edit(p);
+  const r = run(p, ms);
+  const foci = r.out.waves.filter((w) => w.site === "torsades focus" && Number.isFinite(w.tFirstVent)).sort((x, y) => x.tFirstVent - y.tFirstVent);
+  const starts = foci.filter((w, i) => i === 0 || w.tFirstVent - foci[i - 1].tFirstVent > 600);
+  let [a, b] = [0, 0];
+  for (const st of starts) {
+    const [x, y] = runWindow(r.out, st.tFirstVent - 5, ms);
+    if (y - x > b - a) [a, b] = [x, y];
+  }
+  return { m: tdpMetrics(r.out, r.sim.dt, a, b), run: b - a };
+}
+
+/** How far each measured value is outside its target band (0 = inside). */
+export function score(m: TdpMetrics, runMs: number): number {
+  const out = (x: number, lo: number, hi: number) => (x < lo ? (lo - x) / lo : x > hi ? (x - hi) / hi : 0);
+  return (
+    out(m.rate, 180, 250) +
+    out(m.baselineFraction, 0, 0.15) +
+    out(m.nodesPer5s, 0.8, 4) + // spindles of 5–20 beats
+    out(m.envelopeRatio, 3, 50) +
+    out(m.axisSpan, 180, 5000) +
+    out(m.meanSpan, 100, 400) +
+    out(m.extremaPerBeat, 1, 3) +
+    out(runMs, 2000, 20000)
+  );
+}
+
+const fmt = (m: TdpMetrics, runMs: number) =>
+  `run ${runMs.toFixed(0)} ms | CL ${m.cl.toFixed(0)} (${m.rate.toFixed(0)}/min) | base ${(100 * m.baselineFraction).toFixed(0)}% | nodes/5s ${m.nodesPer5s.toFixed(1)} | env ${m.envelopeRatio.toFixed(1)} | axis ${m.axisSpan.toFixed(0)}° | span ${m.meanSpan.toFixed(0)} | extrema ${m.extremaPerBeat.toFixed(1)} | beats ${m.beats}`;
+
+if (process.argv[1].endsWith("tdp-tune.ts")) {
+  const list = (v: string | undefined, d: string) => (v ?? d).split(",").map(Number);
+  const results: { label: string; s: number }[] = [];
+  for (const floor of list(process.argv[2], "0.6"))
+    for (const drift of list(process.argv[3], "0.35"))
+      for (const pair of list(process.argv[4], "45"))
+        for (const ring of list(process.argv[5], "16"))
+          for (const margin of list(process.argv[6], "10"))
+          for (const cvAmp of list(process.argv[7], "0.5")) {
+            const { m, run: rm } = measure((p) => {
+              p.restitution.apdFloor = floor;
+              p.restitution.cvAmplitude = cvAmp;
+              p.torsades = { ...p.torsades, drift, pairOffset: pair, ringSize: ring, margin };
+            });
+            const s = score(m, rm);
+            const label = `floor${floor} drift${drift} pair${pair} ring${ring} margin${margin} cv${cvAmp}`;
+            results.push({ label, s });
+            console.log(`${label}: ${fmt(m, rm)} | score ${s.toFixed(2)}`);
+          }
+  results.sort((a, b) => a.s - b.s);
+  console.log("\nbest:");
+  for (const r of results.slice(0, 5)) console.log(`  ${r.s.toFixed(2)}  ${r.label}`);
 }

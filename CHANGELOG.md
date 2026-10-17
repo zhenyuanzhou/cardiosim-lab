@@ -1,5 +1,59 @@
 # Changelog
 
+## [1.6.0] — 2026-10-17
+
+Torsades de pointes reworked after a direct test of whether it can arise on its own; infarction now
+runs through all five phases instead of the acute one alone.
+
+### Torsades de pointes
+- **Deep analysis of whether the arrhythmia can be emergent.** The M-cell island that the mapping
+  studies name as the obstacle was added to the model, and capture was then scanned over coupling
+  interval (300–480 ms), island amplitude and size, electrotonic smoothing, conduction velocity and
+  the APD floor. Capture is all-or-nothing: 0 % of the ventricle at 415 ms, 100 % at 435 ms, with no
+  interval that leaves a surviving line of block. The cause was measured — the recovery front sweeps
+  the ventricle in ≈ 140 ms while a premature wave needs 250–280 ms to cross it, so whatever is
+  refractory when the beat starts has recovered before the wavefront arrives. Functional re-entry
+  needs an obstacle held open by wavefront curvature, which an event-driven graph without diffusion
+  cannot represent. The source therefore stays imposed, and the scenario now says so with the numbers.
+  The experiments are re-runnable: `scripts/dev/tdp-emergent.ts`, `tdp-block.ts`, `tdp-refrac.ts`,
+  `tdp-rotor.ts`.
+- **The waveform is rebuilt.** The source now advances a *fraction* of a step per beat around the ring
+  (0.6), so the twist is progressive instead of cycling through 16 fixed vectors, and deep conduction
+  restitution during the run makes each activation last 211 ms against a 265 ms cycle, so successive
+  complexes overlap into a continuous undulation rather than a train of spikes.
+- Measured against the published criteria: rate 226 /min (target 180–250), one spindle of 16 beats over
+  4.3 s that self-terminates (was a turnover every 2–3 beats), at the isoelectric line 5 % of the time,
+  22-fold envelope swing, 260° axis sweep, 211 ms activation span. Local extrema per complex, 3.3,
+  remains just outside its 1–3 target: the complexes are still a little more fragmented than a real
+  recording.
+
+### M cells (new)
+- `ventricles.mCellBoost` adds a midmyocardial band that repolarises last, shaped as an **island** in
+  the LV lateral wall (Gaussian across the wall, around the circumference and along the long axis)
+  rather than a layer, following the "unique topographical distribution" of Akar et al.,
+  *Circulation* 2002;105:1247. A layer is a face a wavefront stops at; an island can be circled.
+- Calibration and what this grid can and cannot carry are in SCIENTIFIC_LIMITATIONS.md ("M cells").
+
+### Infarction — all phases
+- `ischaemia.phase` carries any culprit territory through **hyperacute → acute → evolving → subacute →
+  old**, following Marriott ch. 9. Three weights move independently: how much injury current remains
+  (ST), the necrotic fraction of the wall (Q) and the extra peri-infarct APD (T inversion).
+- Necrosis spreads from the subendocardium outwards — the wavefront phenomenon (Reimer & Jennings,
+  *Circulation* 1977;56:786) — so Q waves appear once the dead zone crosses about half the wall.
+- Dead myocardium is **removed from the lead field**, not merely silenced. Zeroing its amplitude left
+  Σ W ≠ 0 over the surviving tissue, which put a square-wave offset on the whole cardiac cycle. It
+  still conducts at CV × 0.3, standing for surviving subendocardial Purkinje fibres and intramural
+  strands; cutting it from the conducting graph as well gave a 450 ms QRS.
+- Eight new scenarios: the four non-acute phases for a proximal LAD and for a distal RCA occlusion.
+  Group F is renamed "Ischaemia & infarction".
+- Measured, proximal LAD: hyperacute T +6.1 mm in V3 with ST +0.8; acute ST +2.1 mm in V4; evolving
+  Q −6.4 mm in V4 with ST down to +0.6; subacute Q with an isoelectric ST and T −1.4 mm; old Q alone
+  with an upright T. Q waves do not develop in V2–V3, where this model has no R wave to remove.
+
+### Tests
+- New: `tests/physiology/mcells.test.ts`, and infarct-phase tests in `tests/physiology/ischaemia.test.ts`
+  including a check that the TP segment stays flat in every lead once tissue is removed from the field.
+
 ## [1.5.0] — 2026-10-17
 
 Potassium and drug scenarios were wrong; acute ischaemia with culprit-vessel localisation and

@@ -12,6 +12,7 @@ import { model } from "../helpers/sim";
 import { pace, TP06_DEFAULT_MODS, type TP06Mods } from "../../src/simulation/cellular/tp06";
 import { DRUG_BY_ID, drugMods } from "../../src/simulation/cellular/drugs";
 import { analyseMorphology } from "../../src/simulation/ecg-forward/morphology";
+import { tdpMetrics, runWindow } from "../../src/simulation/ecg-forward/tdpMetrics";
 import { N_CHANNELS } from "../../src/simulation/ecg-forward/leadField";
 
 const cellCache = new Map<string, ReturnType<typeof pace>>();
@@ -370,67 +371,43 @@ describe("Group D — scar re-entry, polymorphic VT and fibrillation", () => {
   });
 
   it("torsades de pointes", () => {
+    // Measured against the literature with src/simulation/ecg-forward/tdpMetrics.ts. Targets:
+    // rate 180–250 /min (Marriott 13th ed. ch. 17); a tracing that does not return to the isoelectric
+    // line (during re-entrant torsades excitation fronts are constantly present — Vandersickel et al.,
+    // JACC Clin Electrophysiol 2017); amplitude waxing and waning; and a frontal axis that twists.
     const r = sc("tdp", 26000);
-    const beats = r.waves.filter((w) => w.site === "torsades focus" && Number.isFinite(w.tFirstVent)).map((w) => w.tFirstVent).sort((a, b) => a - b);
-    const runs: number[][] = [];
-    let cur: number[] = [];
-    for (const t of beats) {
-      if (cur.length && t - cur[cur.length - 1] > 900) {
-        runs.push(cur);
-        cur = [];
-      }
-      cur.push(t);
+    const foci = r.waves.filter((w) => w.site === "torsades focus" && Number.isFinite(w.tFirstVent)).map((w) => w.tFirstVent).sort((a, b) => a - b);
+    expect(foci.length).toBeGreaterThan(8);
+    const starts = foci.filter((t, i) => i === 0 || t - foci[i - 1] > 600);
+    let win: [number, number] = [0, 0];
+    for (const st of starts) {
+      const w = runWindow(r.out, st - 5, 26000);
+      if (w[1] - w[0] > win[1] - win[0]) win = w;
     }
-    if (cur.length) runs.push(cur);
-    const long = runs.filter((x) => x.length >= 8);
-    expect(long.length).toBeGreaterThanOrEqual(1);
-    const first = long[0];
+    const m = tdpMetrics(r.out, r.sim.dt, win[0], win[1]);
+    expect(m.beats).toBeGreaterThanOrEqual(8);
+    expect(m.rate).toBeGreaterThan(180);
+    expect(m.rate).toBeLessThan(250);
+    expect(m.baselineFraction).toBeLessThan(0.2); // sinus scores 0.73, monomorphic VT 0.24, VF 0.04
+    expect(m.envelopeRatio).toBeGreaterThan(2.5); // waxing and waning, but not total cancellation
+    expect(m.axisSpan).toBeGreaterThan(180); // the points twist about the baseline
+    expect(m.meanSpan).toBeGreaterThan(100); // broad complexes, so successive ones merge
+    // the spindle turns over slowly: real runs take 5-20 beats between nodes, not 2-3
+    expect(m.nodesPer5s).toBeLessThan(10);
     // self-terminating: sinus resumes after the run
-    expect(r.waves.some((w) => w.origin === "sinus" && w.tFirstVent > first[first.length - 1] + 200 && w.tFirstVent < first[first.length - 1] + 3000)).toBe(true);
-
-    const merged: number[] = [];
-    for (const t of first) if (!merged.length || t - merged[merged.length - 1] > 80) merged.push(t);
-    const ivs = merged.slice(1).map((t, i) => t - merged[i]);
-    const cl = ivs.reduce((a, b) => a + b, 0) / ivs.length;
-    // Rate sits at the SLOW edge of the clinical range (200–250 /min) because organised capture
-    // fails above ≈ 176 /min in this engine — a documented limitation, pinned here.
-    expect(60000 / cl).toBeGreaterThan(150);
-    expect(60000 / cl).toBeLessThan(200);
-    // every beat captures (no dropped beats within the run)
-    expect(Math.max(...ivs)).toBeLessThan(450);
-
-    // The hallmark that IS reproduced: the amplitude in one lead waxes and wanes repeatedly.
-    const amps = merged.map((t, k) => {
-      const a = Math.round(t / r.sim.dt);
-      const b = Math.round(Math.min(t + 220, merged[k + 1] ?? t + 240) / r.sim.dt);
-      let lo = Infinity;
-      let hi = -Infinity;
-      for (let i = a; i < b; i++) {
-        const v = r.out.ecg[i * N_CHANNELS + 1];
-        if (v < lo) lo = v;
-        if (v > hi) hi = v;
-      }
-      return hi - lo;
-    });
-    const mx = Math.max(...amps);
-    let dips = 0;
-    let below = false;
-    for (const a of amps) {
-      if (a < 0.5 * mx && !below) {
-        dips++;
-        below = true;
-      }
-      if (a >= 0.5 * mx) below = false;
-    }
-    expect(dips).toBeGreaterThanOrEqual(3); // repeated swelling and collapse, not a single fade
-    expect(mx / Math.min(...amps)).toBeGreaterThan(3);
-
-    // the axis turns, and far more coherently than in fibrillation
-    const mo = analyseMorphology(r.out.ecg, r.sim.dt, first);
-    expect(Math.max(...mo.axes) - Math.min(...mo.axes)).toBeGreaterThan(90);
-
-    // QT is prolonged (the clinical setting, though the model does not derive the foci from it)
+    expect(r.waves.some((w) => w.origin === "sinus" && w.tFirstVent > win[1] && w.tFirstVent < win[1] + 3000)).toBe(true);
+    // QT is prolonged (the clinical setting, though the model does not derive the source from it)
     expect(median(r.beats.map((b) => b.qt).filter((x): x is number => x !== null))).toBeGreaterThan(qtOf("nsr") + 15);
+  });
+
+  it("torsades is distinguishable from monomorphic VT and from fibrillation", () => {
+    // The same measurements separate the three rhythms, so the criteria are not vacuous.
+    const win = (id: string, t0: number, t1: number) => tdpMetrics(sc(id, t1 + 1000).out, sc(id, t1 + 1000).sim.dt, t0, t1);
+    const vt = win("vt-focal", 6000, 11000);
+    const vf = win("vf", 6000, 11000);
+    expect(vt.axisSpan).toBeLessThan(90); // monomorphic: the axis does not twist
+    expect(vf.envelopeRatio).toBeLessThan(2.5); // fibrillation: no organised spindles
+    expect(vf.baselineFraction).toBeLessThan(0.1);
   });
 
   it("re-entry cycle length is set by the refractory floor (documented limitation)", () => {

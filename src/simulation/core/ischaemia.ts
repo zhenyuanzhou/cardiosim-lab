@@ -69,6 +69,7 @@ export interface IschaemiaGeometry {
   cellType: ArrayLike<number>;
   region: ArrayLike<number>;
   apicobasal: ArrayLike<number>;
+  transmural: ArrayLike<number>;
   frame: { baseCenter: ArrayLike<number>; axis: ArrayLike<number>; septalDir: ArrayLike<number>; anteriorDir: ArrayLike<number> };
 }
 
@@ -135,25 +136,106 @@ export function ischaemiaField(g: IschaemiaGeometry, culprit: Culprit): Float32A
  * Per-node AP modifiers for the current parameters. grade 0 = off; 1 = APD shortening only (hyperacute T);
  * 2 = + loss of AP amplitude (ST elevation); 3 = + slow conduction (QRS distortion, "tombstoning").
  */
+/**
+ * Phases of a myocardial infarction (Marriott 13th ed., ch. 8 and 9).
+ *
+ * "During acute transmural ischemia, the electrical vector (axis) of the QRS complex, ST segment, and
+ * T wave all point toward the ischemic region … As the process of ischemia transitions to infarction,
+ * T waves decrease in amplitude (later becoming negative); Q waves develop; and ST segments decrease
+ * in amplitude." (ch. 9). Q waves appear because "absence of any electrical activation of the
+ * infarcted myocardium has replaced the delayed activation of the severely ischemic myocardium".
+ *
+ * Three independent weights carry that sequence, and each is a mechanism rather than a drawing rule:
+ *   injury   — how much of the ischaemic AP change is still present (lower AP amplitude → ST elevation,
+ *              shorter APD → tall T). Decays as the tissue either infarcts or is salvaged.
+ *   necrosis — how much of the territory is dead. Dead myocardium generates NO action potential, so
+ *              the forces that used to come from it are missing: the initial QRS vector points away
+ *              from the infarct and a Q wave appears in the leads over it. It is modelled as
+ *              electrically silent but still slowly conducting (CV × 0.3), which stands for the
+ *              surviving subendocardial Purkinje fibres and intramural strands that keep an old
+ *              infarct electrically continuous; making it a hole in the graph instead gave a 450 ms
+ *              QRS, which no infarct produces. Necrosis spreads from the subendocardium outwards —
+ *              the wavefront phenomenon (Reimer & Jennings, Circulation 1977;56:786) — so a node dies
+ *              when its depth from the endocardium is within necrosis × its ischaemic weight, and the
+ *              core becomes transmural while the border zone stays subendocardial.
+ *   tWave    — extra APD in the SURVIVING tissue of the territory. It then repolarises last, so the
+ *              T vector points away from the infarct: the inverted T of the evolving and healing
+ *              phases ("T waves … migrate past the isoelectric baseline until they are directed away
+ *              from the involved region", ch. 9).
+ *
+ * The weights are nominal interpolations of that described sequence; the ECG features they produce are
+ * what the tests check. Timings are the textbook ones and are not themselves simulated — the model has
+ * no clock for healing, so a phase is a state you select, not a process that runs.
+ */
+export const INFARCT_PHASES = ["hyperacute", "acute", "evolving", "subacute", "old"] as const;
+export type InfarctPhase = (typeof INFARCT_PHASES)[number];
+
+export const PHASE_LABELS: Record<InfarctPhase, string> = {
+  hyperacute: "Hyperacute (minutes)",
+  acute: "Acute, ST elevation (up to hours)",
+  evolving: "Evolving (hours to a day)",
+  subacute: "Subacute / healing (days)",
+  old: "Old / chronic (weeks onwards)",
+};
+
+export const PHASE_WEIGHTS: Record<InfarctPhase, { injury: number; necrosis: number; tWave: number }> = {
+  hyperacute: { injury: 0.55, necrosis: 0, tWave: 0 },
+  acute: { injury: 1, necrosis: 0, tWave: 0 },
+  evolving: { injury: 0.55, necrosis: 0.45, tWave: 0.5 },
+  subacute: { injury: 0.1, necrosis: 0.8, tWave: 1 },
+  old: { injury: 0, necrosis: 1, tWave: 0.15 },
+};
+
+/** Conduction velocity factor through necrotic myocardium (surviving strands). */
+export const DEAD_CV = 0.3;
+/** Extra APD (ms) in surviving territory at tWave = 1 — calibrated to give deep but not grotesque T inversion. */
+export let T_WAVE_APD = 150;
+export const setTWaveApd = (v: number) => (T_WAVE_APD = v);
+
+/**
+ * Per-node AP modifiers for the current parameters. `grade` (Sclarovsky–Birnbaum) still scales the
+ * acute changes: 1 = APD shortening only (hyperacute T); 2 = + loss of AP amplitude (ST elevation);
+ * 3 = + delayed depolarisation (slow conduction).
+ */
 export function ischaemiaModifiers(g: IschaemiaGeometry, p: Pick<SimParams, "ischaemia">) {
   const n = g.n;
   const apd = new Float32Array(n).fill(1);
+  const apdAdd = new Float32Array(n);
   const amp = new Float32Array(n).fill(1);
   const cv = new Float32Array(n).fill(1);
   const rest = new Float32Array(n);
+  const none = { field: null as Float32Array | null, apd, apdAdd, amp, cv, rest, dead: null as Uint8Array | null };
   const { culprit, grade } = p.ischaemia;
-  if (culprit === "none" || grade <= 0) return { field: null as Float32Array | null, apd, amp, cv, rest };
+  if (culprit === "none") return none;
+  const ph = PHASE_WEIGHTS[(p.ischaemia.phase ?? "acute") as InfarctPhase] ?? PHASE_WEIGHTS.acute;
+  if (grade <= 0 && ph.necrosis <= 0) return none;
   const field = ischaemiaField(g, culprit);
   const A = ISCHAEMIC_AP;
+  let dead: Uint8Array | null = null;
+  if (ph.necrosis > 0) {
+    dead = new Uint8Array(n);
+    // The wavefront phenomenon: necrosis starts in the subendocardium and advances towards the
+    // epicardium, and it reaches the epicardium only where the territory is most severely ischaemic.
+    // A node is dead when its depth from the endocardium is within necrosis × (its ischaemic weight),
+    // so at full necrosis the core is transmural while the border zone is only subendocardial.
+    for (let i = 0; i < n; i++) if (field[i] > 0 && g.transmural[i] <= ph.necrosis * field[i]) dead[i] = 1;
+  }
+  const inj = grade > 0 ? ph.injury : 0;
   for (let i = 0; i < n; i++) {
     const m = field[i];
     if (m <= 0) continue;
-    apd[i] = 1 + (A.apdScale - 1) * m;
-    if (grade >= 2) {
-      amp[i] = 1 + (A.ampScale - 1) * m;
-      rest[i] = A.restShift * m;
+    if (dead && dead[i]) {
+      amp[i] = 0; // necrotic: no action potential, hence no contribution to the ECG
+      cv[i] = DEAD_CV;
+      continue;
     }
-    if (grade >= 3) cv[i] = 1 + (A.cvScale - 1) * m;
+    apd[i] = 1 + (A.apdScale - 1) * m * inj;
+    apdAdd[i] = T_WAVE_APD * ph.tWave * m;
+    if (grade >= 2 && inj > 0) {
+      amp[i] = 1 + (A.ampScale - 1) * m * inj;
+      rest[i] = A.restShift * m * inj;
+    }
+    if (grade >= 3 && inj > 0) cv[i] = 1 + (A.cvScale - 1) * m * inj;
   }
-  return { field, apd, amp, cv, rest };
+  return { field, apd, apdAdd, amp, cv, rest, dead };
 }

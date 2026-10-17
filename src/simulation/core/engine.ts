@@ -143,7 +143,7 @@ export class Simulator {
   readonly dt: number;
   params: SimParams;
   d: Derived;
-  readonly W: Float32Array;
+  W: Float32Array;
 
   // state
   lastAct: Float64Array;
@@ -199,6 +199,7 @@ export class Simulator {
     this.d = derive(model, this.params);
     this.shapes = shapesFor(this.params);
     this.W = W ?? computeLeadField(model);
+    this.applyDeadField();
     const n = model.n;
     this.lastAct = new Float64Array(n);
     this.prevAct = new Float64Array(n);
@@ -268,6 +269,9 @@ export class Simulator {
     this.recWave = [];
     this.ecgBuf = [];
     this.ecgStart = 0;
+    this.tdpPos = 0;
+    this.tdpLeft = 0;
+    this.tdpPending = -1;
     this.recCount = 0;
     const m = this.model;
     // Pacemakers: SA node fires first at 40 ms; latent pacemakers are armed.
@@ -294,6 +298,7 @@ export class Simulator {
     this.params = cloneParams(p);
     this.d = derive(this.model, this.params);
     this.shapes = shapesFor(this.params);
+    this.applyDeadField();
     const m = this.model;
     // Re-arm pacemakers whose cycle length changed (pending automaticity events become stale).
     const rearm = (node: number, oldCl: number, newCl: number) => {
@@ -520,6 +525,7 @@ export class Simulator {
     }
     this.record(node, t, wave);
     this.updateWave(node, t, wave, apd);
+    if (this.tdpLeft > 0) this.torsadesAdvance(node, t);
 
     // Latent / dominant pacemakers: arm next automaticity check (overdrive reset)
     if (node === m.san || node === m.hisProximal || node === m.ventEscape) {
@@ -656,39 +662,131 @@ export class Simulator {
   }
 
   /**
-   * Torsades generator — a drifting source.
+   * Torsades generator — a drifting re-entrant source, gated by local recovery.
    *
-   * Every `every` conducted beats: the beat before fires one triggered beat (the "short" cycle,
-   * followed by its compensatory pause); on the next conducted beat a run starts at the same
-   * coupling interval. Within the run the site of origin MIGRATES around the ventricles, one step
-   * per beat along a ring of sites, so each beat is activated from somewhere new. The activation
-   * direction therefore turns progressively, the QRS axis with it, and the amplitude in any one
-   * lead swells and collapses as the axis sweeps through that lead's null — the waxing and waning
-   * that gives torsades its appearance. This is a reduced-order stand-in for a drifting rotor,
-   * which is what the mapping and simulation literature holds responsible for the undulating axis;
-   * the engine cannot produce a true meandering spiral wave.
+   * What the mapping literature says, and what this reproduces:
+   *  • Initiation is focal, after a long–short sequence: a long–short ventricular cycle preceded 41 of
+   *    44 episodes (Kay et al., JACC 1983), and every mapped episode began with focal (EAD-triggered)
+   *    activity (Vandersickel et al., JACC Clin Electrophysiol 2017).
+   *  • Perpetuation of the longer episodes is re-entrant; short ones stay focal (same study; and
+   *    Van Den Abeele et al., Front Physiol 2023, where non-terminating episodes carried 2.7 ± 1.5
+   *    simultaneous loops against 1.3 ± 0.7 in self-terminating ones).
+   *  • The undulating axis comes from DRIFT of the source: nonstationary scroll waves give undulating
+   *    ECGs and stationary ones monomorphic ECGs (Gray et al., Circulation 1995).
+   *  • During re-entry "excitation fronts were constantly present in the heart", whereas focal
+   *    torsades leaves a silent interval of ≈ 142 ms between waves (Vandersickel 2017) — which is why
+   *    a torsades tracing has no isoelectric baseline.
+   *
+   * Implementation. The source travels around a circumferential ring of ventricular sites, one step
+   * per beat, and fires AT EACH SITE AS SOON AS THAT TISSUE HAS RECOVERED (local ERP + a short
+   * margin) rather than on an imposed schedule. Three things follow from that rule instead of being
+   * tuned: the cycle length (set by refractoriness on the long-QT substrate), the fact that the next
+   * wavefront begins while the previous one is still propagating (no isoelectric baseline), and
+   * self-termination when no site recovers in time. A second loop on the far side of the ring, turning
+   * the other way, reproduces the paired "figure-of-eight" source of the longer episodes; with it the
+   * two vectors never cancel completely, so the amplitude waxes and wanes instead of vanishing.
+   *
+   * The ring is a reduced-order stand-in: this engine has no curvature or source–sink physics, so it
+   * cannot grow a true meandering spiral wave.
    */
-  private static readonly TDP_PATH = ["rvot", "lv-anterobasal", "lv-lateral", "lv-inferobasal", "lv-apex", "rv-apex", "septum"] as const;
+  private tdpRing: number[] = [];
+  private tdpPos = 0;
+  private tdpLeft = 0;
+  private tdpPending = -1;
+
+  /** Mid-wall ventricular nodes evenly spaced by angle around the long axis. */
+  private torsadesRing(n: number): number[] {
+    if (this.tdpRing.length === n) return this.tdpRing;
+    const m = this.model;
+    const f = m.frame;
+    const best: { node: number; score: number }[] = Array.from({ length: n }, () => ({ node: -1, score: Infinity }));
+    for (let i = 0; i < m.n; i++) {
+      if (m.cellType[i] !== CT.VENTRICULAR) continue;
+      const ab = m.apicobasal[i];
+      if (ab < 0.25 || ab > 0.75) continue; // mid third along the long axis
+      const rx = m.pos[3 * i] - f.baseCenter[0];
+      const ry = m.pos[3 * i + 1] - f.baseCenter[1];
+      const rz = m.pos[3 * i + 2] - f.baseCenter[2];
+      const a = rx * f.septalDir[0] + ry * f.septalDir[1] + rz * f.septalDir[2];
+      const b = rx * f.anteriorDir[0] + ry * f.anteriorDir[1] + rz * f.anteriorDir[2];
+      const phi = Math.atan2(b, a);
+      const k = ((Math.round((phi / (2 * Math.PI)) * n) % n) + n) % n;
+      // prefer mid-wall, mid-level nodes: closest to transmural 0.5 and apicobasal 0.5
+      const score = Math.abs(m.transmural[i] - 0.5) + Math.abs(ab - 0.5);
+      if (score < best[k].score) best[k] = { node: i, score };
+    }
+    this.tdpRing = best.filter((x) => x.node >= 0).map((x) => x.node);
+    return this.tdpRing;
+  }
 
   private torsadesTick(w: WaveInfo, t: number): void {
     const tp = this.params.torsades;
     if (!tp.enabled) return;
     if (w.origin !== "sinus" && w.origin !== "junctional" && w.origin !== "ventricular-escape") return;
-    const path = Simulator.TDP_PATH.map((id) => this.model.ectopicSites[id]).filter((n) => n !== undefined) as number[];
-    if (path.length < 3) return;
-    const start = Math.max(0, Simulator.TDP_PATH.indexOf(tp.siteA as (typeof Simulator.TDP_PATH)[number]));
+    const ring = this.torsadesRing(Math.max(4, Math.round(tp.ringSize)));
+    if (ring.length < 4) return;
     const k = Math.max(3, Math.round(tp.every));
     this.counters.tdp = (this.counters.tdp || 0) + 1;
     const c = this.counters.tdp % k;
     if (c === k - 1) {
-      this.queue.push(t + tp.coupling, path[start % path.length], -6, -1, EV_EXCITE, 0);
-    } else if (c === 0) {
-      const n = Math.max(1, Math.round(tp.beats));
-      for (let b = 0; b < n; b++) {
-        const idx = Math.round(start + b * tp.drift) % path.length;
-        this.queue.push(t + tp.coupling + b * tp.cycleA, path[idx], -6, -1, EV_EXCITE, 0);
-      }
+      // the "short" cycle: one triggered beat, whose compensatory pause gives the long cycle
+      this.queue.push(t + tp.coupling, ring[0], -6, -1, EV_EXCITE, 0);
+    } else if (c === 0 && this.tdpLeft <= 0) {
+      this.tdpPos = 0;
+      this.tdpLeft = Math.max(2, Math.round(tp.beats));
+      this.tdpPending = ring[0];
+      this.queue.push(t + tp.coupling, ring[0], -6, -1, EV_EXCITE, 0);
     }
+  }
+
+  /**
+   * Called when the drifting source's wave reaches the next site on the ring: that site has just been
+   * activated, so the soonest it can be re-excited is after its own refractory period.
+   */
+  private torsadesAdvance(node: number, t: number): void {
+    if (this.tdpLeft <= 0 || node !== this.tdpPending) return;
+    const tp = this.params.torsades;
+    const ring = this.tdpRing;
+    this.tdpLeft--;
+    if (this.tdpLeft <= 0) {
+      this.tdpPending = -1;
+      return;
+    }
+    // the source moves a fraction of a ring step per beat — the meander speed of the rotor
+    this.tdpPos += tp.drift;
+    const n = ring.length;
+    const idx = ((Math.round(this.tdpPos) % n) + n) % n;
+    const next = ring[idx];
+    // next cycle: as soon as the tissue at the new source has recovered (its own refractory period)
+    const at = t + Math.max(this.erp[node], this.erp[next]) + tp.margin;
+    this.queue.push(at, next, -6, -1, EV_EXCITE, 0);
+    if (tp.pairOffset > 0) {
+      // paired counter-rotating loop, reflected across the ring
+      const mate = ring[(((-idx) % n) + n) % n];
+      if (mate !== next) this.queue.push(at + tp.pairOffset, mate, -6, -1, EV_EXCITE, 0);
+    }
+    this.tdpPending = next;
+  }
+
+  /**
+   * Necrotic myocardium is not a source: recompute the lead field with those nodes' edges removed, so
+   * that uniformly depolarised surviving tissue is still silent. Cached on the dead-node pattern.
+   */
+  private deadKey = "";
+  private baseW: Float32Array | null = null;
+  private applyDeadField(): void {
+    const dead = this.d.dead;
+    let key = "";
+    if (dead) {
+      let n = 0;
+      let h = 0;
+      for (let i = 0; i < dead.length; i++) if (dead[i]) { n++; h = (h * 31 + i) | 0; }
+      key = `${n}:${h}`;
+    }
+    if (key === this.deadKey) return;
+    if (!this.baseW) this.baseW = this.W;
+    this.deadKey = key;
+    this.W = dead ? computeLeadField(this.model, undefined, dead) : this.baseW;
   }
 
   /** Compute one ECG sample at time T from the current membrane-potential field. */
@@ -796,6 +894,7 @@ export class Simulator {
     this.params = cloneParams(s.params);
     this.d = derive(this.model, this.params);
     this.shapes = shapesFor(this.params);
+    this.applyDeadField();
     this.waves = new Map(s.waves.map(([k, v]) => [k, { ...v }]));
     this.recCount = s.recCount;
     this.sampleCount = s.sampleCount;

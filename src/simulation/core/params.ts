@@ -1,4 +1,4 @@
-import { CULPRITS, CULPRIT_LABELS, type Culprit } from "./ischaemia";
+import { CULPRITS, CULPRIT_LABELS, INFARCT_PHASES, PHASE_LABELS, type Culprit, type InfarctPhase } from "./ischaemia";
 /**
  * Single typed, serialisable simulation-state parameter model.
  *
@@ -82,6 +82,11 @@ export interface SimParams {
     heterogeneity: number;
     /** Multiplier of the phase-3 (repolarisation) width of ventricular cells: > 1 slower, flatter T wave. */
     phase3Scale: number;
+    /** Extra APD (ms) at the centre of the midmyocardial (M) band — see core/mcells.ts. */
+    mCellBoost: number;
+    /** Circumferential and long-axis extent (SD) of the M-cell island. */
+    mCellPhiSd: number;
+    mCellLongSd: number;
   };
   electrolytes: {
     /** Total serum calcium (mmol/L); acts on ventricular APD through a measured human QT slope. */
@@ -94,6 +99,8 @@ export interface SimParams {
     culprit: Culprit;
     /** 0 off; 1 APD shortening (hyperacute T); 2 + AP amplitude loss (ST elevation); 3 + slow conduction. */
     grade: number;
+    /** Where in the course of the infarction: hyperacute → acute → evolving → subacute → old. */
+    phase: InfarctPhase;
   };
   restitution: {
     cvAmplitude: number; // fractional CV reduction at DI -> 0
@@ -124,12 +131,14 @@ export interface SimParams {
    */
   torsades: {
     enabled: boolean;
-    /** Where the run starts on the drift path. */
-    siteA: EctopicSite;
-    /** Cycle length of the run (ms). */
-    cycleA: number;
-    /** Sites advanced along the drift path per beat; fractional values advance more slowly. */
+    /** Ring sites the source advances per beat (fractional): the meander speed of the rotor. */
     drift: number;
+    /** Number of sites in the circumferential ring the source drifts around. */
+    ringSize: number;
+    /** Milliseconds after local recovery at which the drifting source re-excites a site. */
+    margin: number;
+    /** Delay of a second, counter-rotating loop (0 = a single source). */
+    pairOffset: number;
     beats: number; // length of each run
     every: number; // sinus beats between runs
     coupling: number; // ms, first triggered beat after the preceding QRS onset (EAD timing)
@@ -222,14 +231,17 @@ export const DEFAULT_PARAMS: SimParams = {
     borderCvFactor: 0.5,
     heterogeneity: 0,
     phase3Scale: 1,
+    mCellBoost: 22,
+    mCellPhiSd: 55,
+    mCellLongSd: 0.22,
   },
   electrolytes: { serumCalcium: 2.4, serumPotassium: 5.4 },
-  ischaemia: { culprit: "none", grade: 2 },
+  ischaemia: { culprit: "none", grade: 2, phase: "acute" },
   restitution: { cvAmplitude: 0.5, cvTau: 30, apdFloor: 0.45 },
   forward: { limbGain: 1.0, precordialGain: 0.8 },
   rhythm: { sinusArrest: false, saExitBlockEvery: 0 },
   accessory: { site: "none", conductionTime: 15, anteErp: 280, retroErp: 260, antegrade: true },
-  torsades: { enabled: false, siteA: "rvot", cycleA: 300, drift: 1, beats: 16, every: 8, coupling: 390 },
+  torsades: { enabled: false, drift: 0.35, ringSize: 16, margin: 10, pairOffset: 45, beats: 34, every: 10, coupling: 390 },
   ectopy: { site: "none", pattern: "single", coupling: 450, every: 4, runLength: 3, rate: 150, shot: 0 },
 };
 
@@ -762,7 +774,7 @@ const sw = (path: string, label: string, group: string, structure: string, mecha
 const ch = (path: string, label: string, group: string, options: readonly string[], structure: string, mechanism: string, prediction: string): ParamMeta => ({
   path, label, unit: "", min: 0, max: 0, step: 0, group, structure, mechanism, prediction, evidence: "nominal",
   source: "Mechanistic choice; no numeric value involved.", kind: "choice",
-  options: options.map((o) => ({ value: o, label: SITE_LABELS[o] ?? (CULPRIT_LABELS as Record<string, string>)[o] ?? o })),
+  options: options.map((o) => ({ value: o, label: SITE_LABELS[o] ?? (CULPRIT_LABELS as Record<string, string>)[o] ?? (PHASE_LABELS as Record<string, string>)[o] ?? o })),
 });
 const num = (path: string, label: string, unit: string, min: number, max: number, step: number, group: string, structure: string, mechanism: string, prediction: string, source: string): ParamMeta => ({
   path, label, unit, min, max, step, group, structure, mechanism, prediction, evidence: "nominal", source,
@@ -809,6 +821,18 @@ PARAM_META.push(
     "Relative spatial dispersion of ventricular APD (seeded, smoothed over ≈ 5 mm), on top of the transmural and apicobasal gradients.",
     "Higher → local block and wave break during rapid or premature activation; the substrate for polymorphic VT and fibrillatory conduction.",
     "Nominal magnitude; the spatial pattern is a smoothed random field, not patient anatomy."),
+  num("ventricles.mCellBoost", "M-cell APD boost", "ms", 0, 160, 1, "Ventricular electrophysiology", "Midmyocardial (M) cell band, deep subepicardium of the LV lateral wall",
+    "Extra action-potential duration at the centre of the M-cell band: a Gaussian across the wall (centred at transmural 0.45) times a Gaussian around the circumference (centred on the LV lateral wall), so the longest-repolarising tissue forms an ISLAND rather than a layer. M cells repolarise last because they have little IKs and a large late Na⁺ current.",
+    "Raises transmural dispersion of repolarisation and so lengthens Tpeak–Tend; large values create a zone of refractoriness a premature beat can block against and circle — the substrate for intramural re-entry and torsades.",
+    "Calibrated: 22 ms gives a baseline transmural dispersion of 2.6 ms/mm against the 2.7 ± 0.9 ms/mm measured in control canine wedges (Akar et al., Circulation 2002;105:1247); the LQT2 wedges in the same study reached 12.2 ± 2.1 ms/mm. The spatial widths are nominal."),
+  num("ventricles.mCellPhiSd", "M-cell island width (circumference)", "°", 10, 360, 5, "Ventricular electrophysiology", "Midmyocardial (M) cell island",
+    "Circumferential extent (Gaussian SD) of the M-cell island in the LV lateral wall.",
+    "Wider → a larger zone of long refractoriness, which a premature beat must travel further around.",
+    "Nominal: the wedge studies give a transmural profile, not a 3-D density map."),
+  num("ventricles.mCellLongSd", "M-cell island width (long axis)", "×", 0.05, 4, 0.01, "Ventricular electrophysiology", "Midmyocardial (M) cell island",
+    "Extent (Gaussian SD) of the M-cell island along the base→apex axis, as a fraction of that axis.",
+    "Large values turn the island into a band running the length of the wall.",
+    "Nominal; see ventricles.mCellPhiSd."),
   num("ventricles.phase3Scale", "Phase-3 repolarisation width", "×", 0.3, 4, 0.05, "Ventricular electrophysiology", "Ventricular myocytes (phase 3)",
     "Scales how gradually ventricular cells repolarise (the width of phase 3). Slower phase 3 is the cellular effect of reduced repolarising K⁺ current (IKr block, hypokalaemia).",
     "Higher → broader, lower T wave and a longer Tpeak–Tend; lower → narrower, taller T.",
@@ -828,6 +852,9 @@ PARAM_META.push(
   ch("ischaemia.culprit", "Culprit coronary lesion", "Ischaemia", CULPRITS, "Coronary territory (AHA 17-segment model)",
     "Makes the territory of the chosen lesion acutely ischaemic (transmural): shorter APD, lower AP amplitude and, at grade 3, slower conduction, from the TP06 cell model under phase-1a ischaemic conditions.",
     "ST elevation in the leads facing the territory and reciprocal depression opposite — the patterns of Marriott's seven culprit risk areas."),
+  ch("ischaemia.phase", "Phase of the infarction", "Ischaemia", INFARCT_PHASES, "Ischaemic territory over time",
+    "Selects how far the territory has travelled from acute ischaemia to a healed infarct, by setting three weights: how much of the ischaemic action-potential change remains (ST elevation and tall T), how much of the territory is dead and therefore removed from the conducting graph (Q waves), and how much extra APD the surviving tissue carries (inverted T). Necrosis spreads outwards from the subendocardium.",
+    "Hyperacute: tall T, little ST shift. Acute: full ST elevation. Evolving: Q waves appear, ST falls, T flattens then inverts. Subacute: Q waves with deep T inversion and an isoelectric ST. Old: Q waves alone."),
   num("ischaemia.grade", "Ischaemia grade (Sclarovsky–Birnbaum)", "0–3", 0, 3, 1, "Ischaemia", "Ischaemic myocardium",
     "0 off; 1 APD shortening only; 2 + loss of AP amplitude; 3 + delayed depolarisation (slow conduction).",
     "1 → taller (hyperacute) T waves; 2 → ST elevation; 3 → the QRS also deviates toward the ischaemic zone (tombstoning).",
@@ -857,13 +884,26 @@ PARAM_META.push(
     "Anterolateral LV activated late. Limitation: this model does not reproduce the expected left-axis deviation (see SCIENTIFIC_LIMITATIONS)."),
   sw("hisPurkinje.lpfBlock", "Left posterior fascicular block", "Conduction block", "Left posterior fascicle", "Conduction in the posterior fascicle is abolished.",
     "Inferoposterior LV activated late (expected rightward axis shift)."),
-  sw("torsades.enabled", "Torsades generator (two competing triggered foci)", "Triggered activity", "Ventricular myocardium (two triggered foci)",
+  sw("torsades.enabled", "Torsades generator (drifting re-entrant source)", "Triggered activity", "Ventricular myocardium (two triggered foci)",
     "After a short–long sequence, a run of triggered beats whose site of origin migrates around the ventricles, one step per beat. Because each beat starts somewhere new, the activation direction — and so the QRS axis — turns progressively, and the amplitude in any one lead swells and collapses as the axis sweeps through that lead's null.",
     "A self-terminating polymorphic run whose complexes wax and wane; use on a long-QT substrate.",
     "Reduced-order stand-in for a drifting rotor. Simulation and optical-mapping work attributes the undulating QRS of torsades to drift of a spiral wave (a Doppler effect); see Yamazaki & Jalife-group work reviewed in Front Cardiovasc Med 2024;11:1363848."),
-  ch("torsades.siteA", "Torsades starting site", "Triggered activity", ECTOPIC_SITES, "Ventricular myocardium", "Where on the drift path each run begins.", "Changes which lead sees the largest complexes first."),
-  num("torsades.cycleA", "Run cycle length", "ms", 180, 400, 5, "Triggered activity", "Drifting source", "Interval between beats of the run.", "Sets the rate; 200–250 /min is the reported torsades range.", "Nominal; chosen to give the reported rate."),
-  num("torsades.drift", "Drift per beat", "sites", 0.25, 3, 0.25, "Triggered activity", "Drifting source", "How far the origin moves around the ventricles between beats, in steps along an eight-site path.", "Sets how many beats one full twist takes: one complete turn every (8 / drift) beats.", "Nominal; the path is an idealised ring, not a mapped rotor trajectory."),
+  num("torsades.drift", "Source drift rate", "sites/beat", 0.05, 2, 0.05, "Triggered activity", "Drifting source (rotor meander)",
+    "How far the source moves around the ring each beat. The meander speed of a drifting rotor: it sets how fast the activation direction, and so the QRS axis, turns.",
+    "Lower → a slower twist and longer amplitude spindles; one spindle pair per complete turn, i.e. every ringSize/drift beats.",
+    "Calibrated so that the spindles last 5–20 beats, the range seen on clinical recordings."),
+  num("torsades.ringSize", "Drift ring size", "sites", 6, 24, 1, "Triggered activity", "Circumferential ring of mid-wall ventricular sites",
+    "How many positions the drifting source steps through in one turn around the ventricles.",
+    "More sites → a slower twist: one complete turn, and so one amplitude spindle pair, every ringSize beats.",
+    "Nominal; the ring is an idealised circle, not a mapped rotor trajectory."),
+  num("torsades.margin", "Re-excitation margin", "ms", 0, 80, 5, "Triggered activity", "Drifting source",
+    "How long after a site has recovered the drifting source re-excites it. The cycle length is therefore set by local refractoriness, not imposed.",
+    "Larger → slower runs; large enough values stop the run self-terminating.",
+    "Nominal; the cycle length it produces is checked against the reported torsades rate of 180–250 /min."),
+  num("torsades.pairOffset", "Paired loop offset", "ms", 0, 150, 5, "Triggered activity", "Second, counter-rotating loop",
+    "Delay of a second source on the far side of the ring turning the other way (0 = a single source).",
+    "With a second loop the two vectors never cancel completely, so the amplitude waxes and wanes instead of vanishing, and the tracing keeps no isoelectric baseline.",
+    "Non-terminating episodes carried 2.7 ± 1.5 simultaneous re-entry loops against 1.3 ± 0.7 in self-terminating ones (Van Den Abeele et al., Front Physiol 2023)."),
   num("torsades.beats", "Run length", "beats", 4, 60, 1, "Triggered activity", "Both foci", "Approximate number of beats in each run before the triggered activity stops.", "Longer → longer episodes; the rhythm self-terminates when the run ends.", "Nominal."),
   num("torsades.every", "Sinus beats between runs", "k", 3, 20, 1, "Triggered activity", "Both foci", "How often the short–long–short sequence and run recur.", "Smaller → more frequent episodes.", "Nominal."),
   num("torsades.coupling", "Triggered coupling interval", "ms", 250, 600, 5, "Triggered activity", "Both foci", "Delay from the preceding QRS onset to the first triggered beat.", "Default 390 ms is the EAD takeoff time measured in the TP06 cell.", "Measured in this implementation of TP06 (scripts/dev/ead-timing.ts)."),

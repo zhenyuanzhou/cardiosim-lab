@@ -140,8 +140,9 @@ export const allChestPositions = (): Vec3[] => [...precordialPositions(), ...ext
 /**
  * Lead-field weights, interleaved [node * N_COLS + column]. `chest` may hold the 6 standard
  * electrodes only (the extra ones are then appended at their default positions) or all 13.
+ * `exclude` marks nodes that are not electrical sources at all (necrotic myocardium).
  */
-export function computeLeadField(model: CardiacModel, chestIn: Vec3[] = allChestPositions()): Float32Array {
+export function computeLeadField(model: CardiacModel, chestIn: Vec3[] = allChestPositions(), exclude?: Uint8Array | null): Float32Array {
   const chest = chestIn.length >= N_CHEST ? chestIn : [...chestIn, ...extraChestPositions()];
   const W = new Float64Array(model.n * N_COLS);
   const h = model.gridSpacing;
@@ -150,6 +151,11 @@ export function computeLeadField(model: CardiacModel, chestIn: Vec3[] = allChest
   for (let e = 0; e < model.lfI.length; e++) {
     const i = model.lfI[e];
     const j = model.lfJ[e];
+    // Excluded (necrotic) nodes are not membranes: they carry no impressed current, so every edge
+    // touching one is dropped. Dropping the EDGE rather than the node's weights keeps Σ W = 0, which
+    // is what makes uniformly depolarised tissue silent; zeroing a node's weights alone would leave a
+    // residual and put a square-wave offset on the whole cardiac cycle.
+    if (exclude && (exclude[i] || exclude[j])) continue;
     const dx = P[3 * j] - P[3 * i];
     const dy = P[3 * j + 1] - P[3 * i + 1];
     const dz = P[3 * j + 2] - P[3 * i + 2];

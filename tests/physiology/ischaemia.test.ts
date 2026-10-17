@@ -111,3 +111,93 @@ describe("Group F — culprit risk areas (Marriott Table 8.2)", () => {
     expect(Math.abs(st("lcx-nondominant").V6)).toBeLessThanOrEqual(0.14);
   });
 });
+
+/**
+ * Phases of infarction. The sequence under test is Marriott ch. 9: "As the process of ischemia
+ * transitions to infarction, T waves decrease in amplitude (later becoming negative); Q waves develop;
+ * and ST segments decrease in amplitude." Necrosis spreads from the subendocardium outwards (the
+ * wavefront phenomenon, Reimer & Jennings, Circulation 1977;56:786), so Q waves appear once the dead
+ * zone reaches about half the wall and are permanent thereafter.
+ */
+import { measureBeats } from "../../src/simulation/ecg-forward/measurements";
+import { waveform } from "../../scripts/dev/infarct-phases";
+import { INFARCT_PHASES, type InfarctPhase } from "../../src/simulation/core/ischaemia";
+
+const wCache = new Map<string, Record<string, { st: number; q: number; r: number; t: number }>>();
+/** ST (mm at J+60), initial Q (mm), R (mm) and T (mm) per lead, for one scenario. */
+function wf(id: string): Record<string, { st: number; q: number; r: number; t: number }> {
+  if (wCache.has(id)) return wCache.get(id)!;
+  const r = run(SCENARIOS.find((x) => x.id === id)!.apply!(), 5000);
+  const beats = measureBeats(r.out.ecg, r.sim.dt, 0, r.out.waves).filter((x) => x.qt !== null);
+  const b = beats[beats.length - 2] as unknown as { qrsOn: number; qrsOff: number; qt: number };
+  const out: Record<string, { st: number; q: number; r: number; t: number }> = {};
+  for (const n of ALL_LEAD_NAMES) out[n] = waveform(r.out.ecg, r.sim.dt, b, channelOf(n));
+  wCache.set(id, out);
+  return out;
+}
+const phase = (culprit: string, p: InfarctPhase) => wf(p === "acute" ? `isch-${culprit}` : `mi-${culprit}-${p}`);
+
+describe("Group F — phases of infarction", () => {
+  it("every phase is registered as a scenario for both series", () => {
+    for (const c of ["lad-prox", "rca-distal"]) for (const p of INFARCT_PHASES) expect(phase(c, p), `${c} ${p}`).toBeTruthy();
+  });
+
+  it("infarct phases lad-prox", () => {
+    const [hyp, acu, evo, sub, old] = INFARCT_PHASES.map((p) => phase("lad-prox", p));
+    // T wave: tallest when hyperacute, falls through the sequence, inverted when subacute
+    expect(hyp.V3.t).toBeGreaterThan(4);
+    expect(evo.V4.t).toBeLessThan(acu.V4.t);
+    expect(sub.V4.t).toBeLessThan(-0.5); // inverted over the infarct
+    expect(sub.aVL.t).toBeLessThan(-0.5);
+    expect(old.V4.t).toBeGreaterThan(0); // upright again once healed
+    // ST: builds from hyperacute to acute, then falls to the baseline
+    expect(hyp.V4.st).toBeLessThan(acu.V4.st);
+    expect(evo.V4.st).toBeLessThan(acu.V4.st);
+    expect(Math.abs(sub.V4.st)).toBeLessThan(0.5);
+    expect(Math.abs(old.V4.st)).toBeLessThan(0.5);
+    // Q waves: absent early, appear when necrosis crosses the wall, permanent thereafter
+    expect(Math.abs(hyp.V4.q)).toBeLessThan(0.5);
+    expect(evo.V4.q).toBeLessThan(-2);
+    expect(sub.V4.q).toBeLessThanOrEqual(evo.V4.q + 0.2);
+    expect(old.V4.q).toBeLessThan(-2);
+    expect(old.aVL.q).toBeLessThan(-2);
+    // and the R wave they replace is gone
+    expect(old.V4.r).toBeLessThan(hyp.V4.r);
+  });
+
+  it("infarct phases rca-distal", () => {
+    const [hyp, acu, evo, sub, old] = INFARCT_PHASES.map((p) => phase("rca-distal", p));
+    expect(hyp.III.t).toBeGreaterThan(1);
+    expect(evo.III.st).toBeLessThan(acu.III.st);
+    expect(sub.III.t).toBeLessThan(-0.5); // inferior T inversion
+    expect(old.III.t).toBeGreaterThan(0);
+    expect(sub.III.q).toBeLessThan(-2); // inferior Q waves
+    expect(sub.aVF.q).toBeLessThan(-1);
+    expect(old.III.q).toBeLessThan(-2);
+    // the infarct stays inferior: no anterior Q waves
+    expect(Math.abs(old.V2.q)).toBeLessThan(0.5);
+  });
+
+  it("the QRS stays narrow: dead myocardium is silent but still conducts", () => {
+    for (const c of ["lad-prox", "rca-distal"]) {
+      const r = run(SCENARIOS.find((x) => x.id === `mi-${c}-old`)!.apply!(), 5000);
+      const beats = measureBeats(r.out.ecg, r.sim.dt, 0, r.out.waves).filter((x) => x.qrs !== null);
+      const q = beats[beats.length - 2].qrs as number;
+      expect(q, `${c} QRS`).toBeGreaterThan(60);
+      expect(q, `${c} QRS`).toBeLessThan(130);
+    }
+  });
+
+  it("removing dead tissue from the lead field keeps the baseline flat", () => {
+    // Zeroing a region's amplitude without dropping its lead-field edges leaves Sum W != 0 over the
+    // surviving nodes, which puts a DC offset on the whole cardiac cycle. The TP segment is the check.
+    const r = run(SCENARIOS.find((x) => x.id === "mi-lad-prox-old")!.apply!(), 5000);
+    const beats = measureBeats(r.out.ecg, r.sim.dt, 0, r.out.waves).filter((x) => x.qt !== null);
+    const b = beats[beats.length - 2] as unknown as { qrsOn: number; qt: number };
+    const at = (ch: number, t: number) => r.out.ecg[Math.round(t / r.sim.dt) * N_CHANNELS + ch];
+    for (const l of ALL_LEAD_NAMES) {
+      const ch = channelOf(l);
+      expect(Math.abs(at(ch, b.qrsOn + b.qt + 60) - at(ch, b.qrsOn - 20)), `${l} TP`).toBeLessThan(0.05);
+    }
+  });
+});

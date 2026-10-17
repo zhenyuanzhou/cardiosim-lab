@@ -120,6 +120,48 @@ The generic "IKr inhibition" scenarios also still use TP06 and therefore under-p
 - Only the acute phase: no necrosis, Q waves, T-wave inversion, reperfusion or evolution, and no
   subendocardial (ST-depression) ischaemia.
 
+## Infarct phases (new in v1.6.0)
+
+`ischaemia.phase` carries the territory through hyperacute → acute → evolving → subacute → old, with
+three independent weights (`src/simulation/core/ischaemia.ts`): how much of the ischaemic action-potential
+change remains (ST elevation, tall T), how much of the territory is necrotic, and how much extra APD
+the surviving tissue carries (T inversion). The sequence follows Marriott ch. 9: "As the process of
+ischemia transitions to infarction, T waves decrease in amplitude (later becoming negative); Q waves
+develop; and ST segments decrease in amplitude."
+
+How necrosis is represented, and why:
+- Dead myocardium generates no action potential, so the forces that used to come from it are missing
+  and the initial QRS vector points away from the infarct — the Q wave. It spreads outwards from the
+  subendocardium (the wavefront phenomenon, Reimer & Jennings, Circulation 1977;56:786): a node dies
+  when its depth from the endocardium is within necrosis × its ischaemic weight, so at full necrosis
+  the core is transmural while the border zone stays subendocardial.
+- Dead nodes are **removed from the lead field**, not merely given zero amplitude. Zeroing a region's
+  amplitude leaves Σ W ≠ 0 over the surviving tissue, which puts a square-wave offset on the whole
+  cardiac cycle — the first attempt did exactly that. Dropping every edge that touches a dead node keeps
+  the zero-sum property, which is the condition that makes uniformly depolarised tissue silent.
+- Dead tissue still conducts, at CV × 0.3. Removing it from the conducting graph as well gave a 450 ms
+  QRS, because the necrotic subendocardium carries the Purkinje–muscle junctions for the whole
+  territory. Slow conduction stands for the surviving subendocardial Purkinje fibres and intramural
+  strands that keep an old infarct electrically continuous.
+
+What it reproduces, measured on the simulated ECG (proximal LAD, `scripts/dev/infarct-phases.ts`):
+hyperacute — tall T (V3 +6.1 mm) with ST only +0.5 to +1.2 mm; acute — ST maximal (V4 +2.1 mm, aVL
++1.1 mm) with reciprocal depression (III −1.5 mm); evolving — Q waves appear (V4 −6.4 mm, aVL −3.1 mm),
+ST falls to +0.6 mm, T falls; subacute — Q waves with an isoelectric ST and inverted T over the infarct
+(V4 −1.4 mm, aVL −1.1 mm); old — Q waves alone, T upright again.
+
+Limits:
+- **Timings are labels, not a process.** The model has no clock for healing: a phase is a state you
+  select. The weights are nominal interpolations of the described sequence.
+- **Q waves do not appear in V2–V3**, where an anterior infarct should show them most clearly. Those
+  leads are dominated by a deep S in this model's poor R-wave progression (see "ECG amplitudes"), so
+  there is no R for the infarct to remove.
+- T-wave inversion reaches the leads directly over the infarct (V4, I, aVL) but not V2–V3, for the same
+  reason. The peri-infarct APD boost needed to invert the T at all is 150 ms, which also stretches QT to
+  about 490 ms in the subacute phase — longer than a typical healing infarct.
+- No reperfusion, no evolution in time, no ventricular aneurysm (persistent ST elevation), no
+  subendocardial (non-Q-wave) infarction as a separate entity.
+
 ## Extra chest leads (new in v1.5.0)
 
 V3R–V6R are the mirror positions of V3–V6; V7 (posterior axillary), V8 (mid-scapular, 80 mm from the
@@ -168,6 +210,70 @@ the ratio CL/APDref was **0.408–0.422** against a predicted 0.414. Three thing
   re-entrant scenario therefore needs burst pacing, whereas clinically a single R-on-T beat often
   suffices.
 
+## M cells (new in v1.6.0)
+
+Until v1.5 the ventricular APD varied monotonically across the wall (endocardium longest, epicardium
+shortest). Real ventricle has a midmyocardial (M) band that repolarises last, and that band matters
+here for two reasons: it is what the Tpeak–Tend interval measures (Yan & Antzelevitch, Circulation
+1998;98:1928), and it is the substrate the torsades literature invokes. `ventricles.mCellBoost` now adds
+a Gaussian hump across the wall (centred at transmural 0.45) multiplied by Gaussians around the
+circumference and along the long axis, so the longest-repolarising tissue forms an **island** in the LV
+lateral wall rather than a layer (`src/simulation/core/mcells.ts`).
+
+Calibration and limits:
+- At the default 22 ms the transmural gradient through the island is 1.3 ms/mm with the model's 4 mm
+  electrotonic smoothing, against 2.7 ± 0.9 ms/mm measured in control canine wedges (Akar et al.,
+  Circulation 2002;105:1247). Reducing the smoothing radius to 1 mm gives 3.0 ms/mm. The smoothing
+  radius is nominal, so the model sits at or just below the low end of the control range.
+- The LQT2 wedges in the same study reach 12.2 ± 2.1 ms/mm. This model cannot: on a 2.5 mm grid with
+  electrotonic smoothing the steepest gradient reachable is about 5 ms/mm at a plausible boost, and
+  about 10 ms/mm only with the smoothing turned down to 1 mm and a boost of 140 ms.
+- Tpeak–Tend rises from 60 to 70 ms as the smoothing radius falls from 4 to 1 mm; the reported human
+  range is wider than either. The island's spatial widths are nominal — the wedge studies give a
+  transmural profile, not a 3-D density map.
+
+## Torsades de pointes: why the mechanism is imposed (re-examined in v1.6.0)
+
+The question asked of v1.6 was whether torsades could be made to EMERGE from the substrate instead of
+being driven by a scripted source. It cannot, and the reason is now measured rather than asserted.
+
+**What was tried.** On a long-QT substrate (APD × 1.3) with the new M-cell island, a premature beat was
+delivered from the epicardium directly over the island — the site with the shortest refractory period
+next to the longest — across coupling intervals from 300 to 480 ms in 5–20 ms steps, with the island
+amplitude at 80–160 ms, the electrotonic smoothing at 1–4 mm, conduction at 0.7–1.0 × normal, the APD
+floor at 0.35–0.45, and the island widened from its default (55° circumference, 0.22 of the long axis)
+up to a band covering essentially the whole free wall. Two-stimulus cross-field initiation (a second
+stimulus 60–140 ms later at 90° and 135° around a ring of radius 14–22 mm) was tried as well.
+
+**What happens.** Capture is all-or-nothing. At 415 ms the stimulus site is itself refractory and
+nothing propagates; at 435 ms the entire ventricle is captured. There is no coupling interval at which
+part of the ventricle is captured and part is left as a block line. The reason is a timing mismatch that
+the model can be asked for directly: after a sinus beat the ventricle goes from 96 % refractory at
+374 ms to 0 % at 514 ms, so the recovery front sweeps the whole chamber in about 140 ms, whereas a
+premature wavefront needs 250–280 ms to cross it. Whatever is refractory when a premature beat starts
+has recovered before the wavefront can reach it. Widening the island does not help, because the wave
+simply travels around it and arrives from the far side later still.
+
+**Why that is structural.** Functional re-entry needs an obstacle that persists for a lap. In a real
+heart that obstacle is the rotor core, held unexcitable by the curvature of the wavefront itself
+(source–sink mismatch). This engine is an event-driven graph: it has conduction and refractoriness but
+no diffusion, so it has no curvature and cannot hold a core. The only obstacles it can offer are
+anatomical — which is exactly why atrial flutter and scar VT, which circulate around fixed obstacles,
+do work here and are *validated*. A dispersion-created obstacle could in principle persist if its
+refractory period exceeded the tachycardia cycle length, but that is circular: it requires the
+tachycardia to already be running.
+
+There is also a resolution limit underneath this. Block persists only where the repolarisation gradient
+is steeper than the conduction time over the same distance. The LQT2 wedge gradient of 12.2 ms/mm gives
+122 ms of dispersion across a 10 mm wall, crossed in about 17 ms. On this 2.5 mm grid, after electrotonic
+smoothing, the steepest representable gradient is 3–10 ms/mm, so the margin is at best marginal
+and the wave's detour around the block line erases it.
+
+**Conclusion.** Torsades stays an imposed source, and the scenario says so. The experiments are in
+`scripts/dev/tdp-emergent.ts`, `tdp-block.ts`, `tdp-refrac.ts` and `tdp-rotor.ts`, so the negative
+result can be re-run. Reproducing it properly needs a monodomain reaction–diffusion model on a
+sub-millimetre mesh, which is a different simulator, not a parameter change.
+
 ### Torsades de pointes: which mechanism, and what is reproduced
 
 Torsades was first attempted as **re-entry**, and that route failed:
@@ -181,24 +287,47 @@ Torsades was first attempted as **re-entry**, and that route failed:
 
 Dessertenne's **two competing foci** was tried next and also failed on the waveform: it produced a
 single fade rather than repeating spindles (lead II peak-to-peak 1.82 → 0.24 mV, then flat), with
-narrow spiky complexes, because the two foci only capture part of the ventricle at that rate.
+narrow spiky complexes, because the two foci only capture part of the ventricle at that rate. A
+source that always moved to the globally best-recovered site locked into a two-site ping-pong.
 
-The scenario now uses a **drifting source** — the origin migrates one step per beat around a
-seven-site path, a reduced-order stand-in for the drifting rotor that current optical-mapping and
-simulation work holds responsible for the undulating axis (a Doppler effect; reviewed in Front
-Cardiovasc Med 2024;11:1363848). Every beat captures, the tracing is continuous with no isoelectric
-baseline, and the lead II amplitude waxes and wanes about ten times per run with a 5-fold swing.
+The scenario therefore uses a **drifting source**: the origin migrates around a 16-site mid-wall
+ring, advancing 0.6 of a step per beat, re-exciting each site as soon as that tissue has recovered.
+It is a reduced-order stand-in for the drifting rotor that current optical-mapping and simulation
+work holds responsible for the undulating axis (a Doppler effect; reviewed in Front Cardiovasc Med
+2024;11:1363848). The fractional step is what makes the twist progressive rather than a repeating
+cycle of 16 fixed vectors, and the paired loop 45 ms behind on the far side of the ring stands for
+the simultaneous circuits of the longer episodes, so that the amplitude dips at a node without
+vanishing.
 
-It is still marked **incomplete**, for two reasons. The complexes are sharper and more fragmented
-than the broad smooth deflections of a real recording. And the rate, ≈ 176 /min, sits at the slow
-edge of the clinical 200–250 /min — because organised ventricular capture fails above ≈ 176 /min on
-a long-QT substrate here: driving faster blocks every other beat (measured 50 % capture across
-cycle lengths of 130–300 ms). Obtaining full capture also required lowering the ERP/APD ratio from
-0.92 to 0.85 — both nominal values, but a tuning choice made to get the appearance.
+**What makes the complexes merge.** Successive activations must overlap, or the tracing is a train
+of discrete spikes rather than a continuous undulation. Two parameters are set for the run, and both
+are nominal rather than calibrated: the APD floor 0.45 → 0.5, which sets the period of the
+circulating source, and the depth of CV restitution 0.5 → 0.85. At the ≈ 10 ms diastolic intervals
+of the run the latter slows conduction to about 39 % of normal, so each activation takes 211 ms
+against a 265 ms cycle. Conduction velocity does fall steeply at short diastolic intervals near the
+point of block, so the direction is right; the size is a tuning choice made to obtain the appearance.
+
+Measured on the simulated ECG (`scripts/dev/tdp-tune.ts`), against the targets in
+`src/simulation/ecg-forward/tdpMetrics.ts`:
+
+| | measured | target |
+|---|---|---|
+| rate | 226 /min | 180–250 |
+| run length | 16 beats over 4.3 s, self-terminating | 5–20 beats per spindle |
+| at the isoelectric line | 5 % of the run | < 15 % (sinus 73 %, monomorphic VT 24 %, VF 4 %) |
+| envelope swing | 22-fold, one node in the run | > 3-fold, spindles not a single fade |
+| frontal axis sweep | 260° | > 180° |
+| activation span | 211 ms | > 100 ms |
+| local extrema per complex | 3.3 | 1–3 |
+
+The last row is the one still outside its target: the complexes are slightly more fragmented than
+the broad smooth deflections of a real recording. Everything else is now in range, including the
+spindle length, which in v1.5 turned over every 2–3 beats.
 
 What the scenario does **not** do is explain why a long QT predisposes to torsades. The migrating
-source is imposed, not generated by the prolonged repolarisation, so it cannot be used to predict
-torsade risk.
+source is imposed, not generated by the prolonged repolarisation — the same generator on a
+normal-QT substrate still runs — so it cannot be used to predict torsade risk. The experiments
+showing why it cannot be made emergent are in the section above.
 
 Two measurement notes. The analyser treats activations within 80 ms as one fused QRS; without that,
 two foci firing 8 ms apart were counted as two beats, which doubled the apparent rate and turned a
