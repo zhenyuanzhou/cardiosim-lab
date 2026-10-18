@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.7.1] — 2026-10-18
+
+Delivery fix, after the v1.6.0 and v1.7.0 builds were never copied to the working drive and two
+releases' worth of changes were evaluated against a v1.5.0 file.
+
+- The build number is now shown in the title bar next to the name, not only in the About tab. A
+  standalone copy opened from an old file looked identical to a current one; it no longer does.
+- `WHICH-FILE.txt` is written beside the build, naming the current file, its size, and how to check
+  the version from inside the app.
+- Each release is now also written under its own name (`CardioSim-v<version>.html`) as well as to
+  `CardioSim-standalone.html`, so the current file can be identified without checking its date.
+
+No change to the simulation.
+
 ## [1.7.0] — 2026-10-18
 
 An independent review of v1.5.0 found two reproducible bugs and several problems with how the

@@ -8,8 +8,11 @@ import { applyLive, restart } from "./state/actions";
 import { SCENARIOS } from "./simulation/scenarios/scenarios";
 import { EXPERIMENTS } from "./visualization/explorer/experiments";
 import { DEFAULT_PARAMS, cloneParams } from "./simulation/core/params";
+import { APP_VERSION } from "./version";
 
 export interface Automation {
+  /** Build identifier, so a script (or a person at the console) can confirm which file is loaded. */
+  version: string;
   clock: typeof clock;
   sim: typeof sim;
   store: typeof useStore;
@@ -23,6 +26,6 @@ export interface Automation {
   abTime?: number;
 }
 
-const api: Automation = { clock, sim, store: useStore, seek, restart, applyLive, scenarios: SCENARIOS, experiments: EXPERIMENTS, defaults: () => cloneParams(DEFAULT_PARAMS) };
+const api: Automation = { version: APP_VERSION, clock, sim, store: useStore, seek, restart, applyLive, scenarios: SCENARIOS, experiments: EXPERIMENTS, defaults: () => cloneParams(DEFAULT_PARAMS) };
 (window as unknown as { __cardiosim: Automation }).__cardiosim = api;
 export default api;

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { APP_VERSION, RELEASE_DATE } from "./version";
 import { clock, sim, useStore, type Mode, type Tab } from "./state/store";
 import { HeartPanelBody } from "./visualization/heart/HeartPanel";
 import { APPanel } from "./visualization/action-potentials/APPanel";
@@ -234,6 +235,9 @@ export default function App() {
           <h1>
             Cardio<span>Sim</span> Lab
           </h1>
+          {/* The build is shown here, not only in About: a standalone copy is easy to open from an
+              old file, and nothing else on screen says which build it is. */}
+          <span className="version mono" title={`Build ${APP_VERSION}, released ${RELEASE_DATE}`}>v{APP_VERSION}</span>
         </div>
         <div className="seg modes" role="tablist" aria-label="View mode">
           {MODES.map(([m, l, title]) => (

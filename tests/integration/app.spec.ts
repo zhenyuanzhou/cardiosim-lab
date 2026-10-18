@@ -73,6 +73,15 @@ test.describe("CardioSim Lab", () => {
     await expect(page.locator('[data-testid="inspect-box"]')).toContainText(/P wave|PR segment|QRS complex|ST segment|T wave|Isoelectric/);
   });
 
+  test("the title bar shows the build number", async ({ page }) => {
+    // A standalone copy opened from an old file looks identical to a current one unless the build is
+    // on screen. Two releases were once evaluated against a stale file because it was not.
+    const version = await page.evaluate(() => (window as unknown as { __cardiosim?: { version?: string } }).__cardiosim?.version);
+    const shown = (await page.locator(".brand .version").innerText()).trim();
+    expect(shown).toMatch(/^v\d+\.\d+\.\d+$/);
+    if (version) expect(shown).toBe(`v${version}`);
+  });
+
   test("validation dashboard confirms lead identities and ECG–activation coherence", async ({ page }) => {
     await page.waitForTimeout(4000);
     await page.click('[data-tab="validation"]');
