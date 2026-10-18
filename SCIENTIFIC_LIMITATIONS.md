@@ -290,50 +290,167 @@ single fade rather than repeating spindles (lead II peak-to-peak 1.82 → 0.24 m
 narrow spiky complexes, because the two foci only capture part of the ventricle at that rate. A
 source that always moved to the globally best-recovered site locked into a two-site ping-pong.
 
-The scenario therefore uses a **drifting source**: the origin migrates around a 16-site mid-wall
-ring, advancing 0.6 of a step per beat, re-exciting each site as soon as that tissue has recovered.
-It is a reduced-order stand-in for the drifting rotor that current optical-mapping and simulation
-work holds responsible for the undulating axis (a Doppler effect; reviewed in Front Cardiovasc Med
-2024;11:1363848). The fractional step is what makes the twist progressive rather than a repeating
-cycle of 16 fixed vectors, and the paired loop 45 ms behind on the far side of the ring stands for
-the simultaneous circuits of the longer episodes, so that the amplitude dips at a node without
-vanishing.
+The scenario therefore uses a **drifting source**, a reduced-order stand-in for the drifting rotor
+that optical-mapping and simulation work holds responsible for the undulating axis (a Doppler effect;
+reviewed in Front Cardiovasc Med 2024;11:1363848).
 
-**What makes the complexes merge.** Successive activations must overlap, or the tracing is a train
-of discrete spikes rather than a continuous undulation. Two parameters are set for the run, and both
-are nominal rather than calibrated: the APD floor 0.45 → 0.5, which sets the period of the
-circulating source, and the depth of CV restitution 0.5 → 0.85. At the ≈ 10 ms diastolic intervals
-of the run the latter slows conduction to about 39 % of normal, so each activation takes 211 ms
-against a 265 ms cycle. Conduction velocity does fall steeply at short diastolic intervals near the
-point of block, so the direction is right; the size is a tuning choice made to obtain the appearance.
+#### What changed in v1.7.0, and why
 
-Measured on the simulated ECG (`scripts/dev/tdp-tune.ts`), against the targets in
+An independent review of v1.5.0 found three things wrong with how that source was built. All three
+were reproduced on v1.6.0 before being changed.
+
+**The source repeated sites and then jumped.** The position was a fractional index that was then
+rounded, so at drift 0.6 on a 16-site ring the sequence was `0 1 1 2 2 3 4 4 5 5 …`. Worse, the sites
+were spaced by anatomical angle, which is not the same as the axis each produces: measured on this
+geometry, stepping one site changed the frontal QRS axis by anything from −2° to +67°.
+
+The source path is now annotated with the axis each site produces, and the source advances a fixed
+increment of AXIS per beat, walking as far along the path as that takes (`advanceIndex`). The
+annotation is the sum of the lead field's dipole weights over the tissue within one conduction radius
+(35 mm) of the site — the heart vector while the QRS is still growing. Checked against beats actually
+simulated from every site on the path, that predicts the realised frontal axis to a median of 8°
+(90th percentile 37°). The single node's own lead-field weight does *not* predict it: on a voxel grid
+those weights quantise to multiples of 45°.
+
+The path itself stays ordered **anatomically**, not by axis. Ordering it by axis was tried and makes
+consecutive sites spatially unrelated, so the wavefront never reaches the next site and the run dies:
+11 beats over 1.8 s, against 58 with the anatomical order. Spatial continuity is what keeps the chain
+alive; the adaptive step size is what makes the twist even.
+
+Residual: the realised twist is 29 ± 17° per beat against 18° requested, because the path's angular
+resolution is limited — some anatomically adjacent sites differ by as much as 68° in the axis they
+produce, so the walk cannot always stop close to the requested increment.
+
+**Disabling the generator did not stop a run.** The whole run was scheduled in advance, so switching
+it off prevented future scheduling only; measured on v1.6.0, fifteen further stimuli fired in the four
+seconds after disabling mid-episode. Reading the code while reproducing that also showed the episode
+state was absent from the snapshot, so a checkpoint taken mid-episode replayed differently (28
+stimuli against 0).
+
+The generator is now an explicit state machine (`src/simulation/core/torsades.ts`) whose every queued
+event carries an epoch token. Disabling it, or changing any of its parameters, increments the token
+and voids everything already queued. The state is part of the snapshot. Both are tested
+(`tests/physiology/torsadesEpisode.test.ts`).
+
+**The run did not depend on the substrate.** The same generator produced episodes with normal APD
+(measured: 60 stimuli in 30 s), so the scenario could not support any statement about long QT.
+
+The triggered beat now arises at the site with the longest action potential — in practice the M-cell
+island — and is **gated** on that action potential still being in phase 3 at the takeoff time, which
+is what an EAD needs. On a normal-QT substrate nothing fires (0 stimuli in 30 s, against 20 on the
+long-QT substrate). Because that cell is itself refractory when the EAD takes off, the wavefront
+emerges in the nearest recovered tissue, which is why the first complex of an episode starts near but
+not at the long-QT zone.
+
+This is a threshold on APD, not a model of EAD dynamics in tissue, and it must not be read as a
+torsade-risk prediction for a drug.
+
+**One further defect, found while fixing the above.** The paired counter-rotating loop and the
+propagation hook could both advance the state machine, so each beat spawned two and the chain branched
+exponentially — six stimuli inside 33 ms, fusing into one complex and making the run look
+monomorphic. Only the source's own excitation now advances the chain, and the second loop has its own
+event code that never touches the state machine. It is off by default in v1.7.0: with the source
+advancing evenly it is no longer needed to keep the amplitude from vanishing.
+
+#### What makes the complexes merge
+
+Successive activations must overlap, or the tracing is a train of discrete spikes rather than a
+continuous undulation. Two parameters are set for the run, and both are nominal rather than
+calibrated: the APD floor 0.45 → 0.5, which sets the period of the circulating source, and the depth
+of CV restitution 0.5 → 0.85. At the short diastolic intervals of the run the latter slows conduction
+to about 39 % of normal, so each activation takes 229 ms against a 273 ms cycle. Conduction velocity
+does fall steeply at short diastolic intervals near the point of block, so the direction is right; the
+size is a tuning choice made to obtain the appearance.
+
+#### Measured
+
+On the simulated ECG (`scripts/dev/tdp-tune.ts`), against the targets in
 `src/simulation/ecg-forward/tdpMetrics.ts`:
 
-| | measured | target |
-|---|---|---|
-| rate | 226 /min | 180–250 |
-| run length | 16 beats over 4.3 s, self-terminating | 5–20 beats per spindle |
-| at the isoelectric line | 5 % of the run | < 15 % (sinus 73 %, monomorphic VT 24 %, VF 4 %) |
-| envelope swing | 22-fold, one node in the run | > 3-fold, spindles not a single fade |
-| frontal axis sweep | 260° | > 180° |
-| activation span | 211 ms | > 100 ms |
-| local extrema per complex | 3.3 | 1–3 |
+| | v1.6.0 | v1.7.0 | target |
+|---|---|---|---|
+| rate | 226 /min | 220 /min | 180–250 |
+| run length | 16 beats / 4.3 s | 18 beats / 5.0 s | 5–20 beats per spindle |
+| at the isoelectric line | 5 % | 7 % | < 15 % (sinus 73 %, VT 24 %, VF 4 %) |
+| envelope swing | 22-fold | 5.6-fold | > 3-fold |
+| frontal axis sweep | 260° | 497° | > 180° |
+| activation span | 211 ms | 229 ms | > 100 ms |
+| local extrema per complex | 3.3 | 4.1 | 1–3 |
+| episode cancellable mid-run | no | yes | — |
+| snapshot replay mid-run | diverges | identical | — |
+| runs on a normal-QT substrate | yes | no | no |
 
-The last row is the one still outside its target: the complexes are slightly more fragmented than
-the broad smooth deflections of a real recording. Everything else is now in range, including the
-spindle length, which in v1.5 turned over every 2–3 beats.
+Two criteria remain outside target: the complexes are still more fragmented than a real recording, and
+the envelope turns over more often than a clinical spindle. The envelope swing is smaller than v1.6's,
+which is a genuine trade: v1.6's large swing came partly from the jerky site jumps that also made the
+complexes spiky.
 
-What the scenario does **not** do is explain why a long QT predisposes to torsades. The migrating
-source is imposed, not generated by the prolonged repolarisation — the same generator on a
-normal-QT substrate still runs — so it cannot be used to predict torsade risk. The experiments
-showing why it cannot be made emergent are in the section above.
+What the scenario does **not** do is explain why a long QT predisposes to torsades. The substrate gate
+decides whether the generator may fire; it does not generate the arrhythmia from the prolonged
+repolarisation. The experiments showing why it cannot be made emergent are in the section above, and a
+staged route to a model that could is in `docs/MECHANISTIC_TDP_PROPOSAL.md`.
 
 Two measurement notes. The analyser treats activations within 80 ms as one fused QRS; without that,
 two foci firing 8 ms apart were counted as two beats, which doubled the apparent rate and turned a
 smooth rotation into a zigzag. And axis-rotation metrics alone were the wrong target: a single
 126° sweep scores well on rotation consistency while looking nothing like torsades. What the eye
 reads is the **amplitude envelope** of one lead, so that is now measured directly.
+
+### QRS detection (rewritten in v1.7.0)
+
+The ECG measurements are made by a detector that sees only the simulated signals, never the model's
+internal state, so that the ECG ↔ activation correspondence can be checked rather than assumed. Until
+v1.6.0 that detector compared the multi-lead spatial slope against **30 % of its maximum over the
+whole analysed window**, which made detection non-causal: multiplying the last second of an
+eight-second sinus recording by ten removed all seven complexes already detected in the first six
+seconds, because the threshold rose with the loudest part of the record.
+
+It is now the standard arrangement — adaptive threshold, refractory period, search-back
+(Pan & Tompkins 1985) — applied to the multi-lead spatial slope rather than one filtered lead, so a
+complex that is isoelectric in one lead still contributes:
+
+- Threshold NPKI + 0.35 (SPKI − NPKI), with running signal and noise peak levels. A deflection that
+  fails the threshold updates the NOISE level, so small deflections push the threshold **up**. An
+  earlier version used the median of recent accepted peaks, which has the opposite behaviour: one
+  accepted P wave lowered the estimate enough to admit the next, and the detector began reporting
+  P waves as complexes for the rest of the record.
+- 180 ms refractory period; search-back at half the threshold after 1.6 × the running RR, with
+  search-back acceptances deliberately excluded from the signal-level update for the same reason.
+- T-wave discrimination: within 360 ms of a complex a candidate must be at least 0.65 × as steep, or
+  no broader than it. Without this the peaked T of severe hyperkalaemia (QRS ≈ 150 ms, tall
+  symmetrical T) was counted as a second complex and the apparent rate doubled.
+
+Measured against the simulator's own wave records across every scenario, the new detector finds
+95.5 % of ventricular activations with 18 spurious detections, against 94.1 % and 42 for the rule it
+replaced. Known limits:
+
+- **Fibrillation is not detectable** and is excluded from the accuracy tests: there are no discrete
+  complexes to find (4 of 33 activations matched). Rhythm-level measures are used there instead.
+- Antidromic AVRT and fast focal VT lose a few complexes where activations fuse.
+- In pre-excitation the detector marks onset at the delta wave, which is correct but shifts the
+  reported onset about 78 ms earlier than the model's first ventricular activation.
+
+### Comparison with real torsades recordings
+
+The review that prompted v1.7.0 asked for comparison against independently sourced, appropriately
+licensed reference recordings. **That has not been done**, and the reason is a practical one rather
+than a judgement that it does not matter: this work runs in an offline environment with no access to
+a licensed ECG archive, and reproducing a copyrighted tracing here would not be lawful. What has been
+done instead is to compare against **published quantitative descriptions** — rate, the absence of an
+isoelectric baseline, the envelope behaviour, the axis sweep, the activation span — which are the
+numbers in the table above and the criteria coded in `src/simulation/ecg-forward/tdpMetrics.ts`.
+
+Anyone with access to PhysioNet or a similar archive can close this gap: the metrics module takes a
+twelve-lead signal and a window, so running it over real torsades episodes and comparing the
+distributions is a direct extension. Two things should be expected to differ.
+
+- **Real torsades is more variable.** The criteria here are a central tendency; clinical recordings
+  include episodes that are slower than 180 /min, episodes with no visible twist in some leads, and
+  episodes that degenerate into fibrillation. A simulated run that always meets every criterion is
+  less variable than the real thing, and the criteria should not be read as necessary conditions for
+  a recording to be torsades.
+- **The rate here is set by refractoriness on an idealised substrate.** It is reproducible to the
+  millisecond between runs, which no recording is.
 
 ### Rotation does not separate torsades from polymorphic VT here
 

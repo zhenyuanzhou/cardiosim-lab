@@ -56,6 +56,136 @@ export interface BeatMeasurement {
 
 const SLOPE_LEADS = [0, 1, 6, 7, 8, 9, 10, 11];
 
+/** Shortest interval (ms) between two separate QRS complexes; closer runs are one complex. */
+export const QRS_REFRACTORY_MS = 180;
+/** Half-width (ms) of the window used for the local amplitude estimate. */
+const LOCAL_WINDOW_MS = 2500;
+/** Fraction of the signal-above-noise level a deflection must reach to be accepted as a complex. */
+export const QRS_THRESHOLD_FRACTION = 0.35;
+/** A candidate this soon after a QRS is tested as a possible T wave (Pan-Tompkins uses 360 ms). */
+const T_WAVE_WINDOW_MS = 360;
+/** A candidate inside that window needs this fraction of the previous complex's slope to be a QRS. */
+const T_WAVE_SLOPE_RATIO = 0.65;
+/** ...or, failing that, must not be broader than this multiple of the previous complex's width. */
+const T_WAVE_WIDTH_RATIO = 1.4;
+
+/**
+ * QRS detection on the multi-lead spatial slope D(t) = Σ|dVm/dt| over eight independent leads.
+ *
+ * ADAPTIVE, NOT GLOBAL. The threshold is recomputed from a running estimate of the recent QRS peak
+ * height, so a later high-amplitude segment cannot retrospectively hide earlier complexes. The
+ * previous version compared D against 30 % of its maximum over the WHOLE analysed window: multiplying
+ * the last second of an 8-second sinus recording by ten made every one of the seven earlier complexes
+ * vanish, because the threshold rose with the loudest part of the record. Detections are made in one
+ * forward pass and are never revised by later data.
+ *
+ * The rules, in order:
+ *  1. A candidate is a local maximum of D above the adaptive threshold.
+ *  2. The threshold is NPKI + 0.25 (SPKI − NPKI), where SPKI and NPKI are running estimates of the
+ *     signal and noise peak levels, initialised from the first 2.5 s of the record. A deflection that
+ *     fails the threshold updates the NOISE level, so small deflections push the threshold up rather
+ *     than down.
+ *  3. A candidate within QRS_REFRACTORY_MS of the previous accepted peak is part of the same complex.
+ *  3b. T-wave discrimination: a candidate between that and T_WAVE_WINDOW_MS after the previous peak is
+ *     rejected if it is either shallower or broader than that complex. Without this, the peaked T of
+ *     severe hyperkalaemia (QRS 150 ms, tall symmetrical T, 62 % of the QRS's slope) is counted as a
+ *     second complex and the apparent rate doubles. Rejecting on EITHER test rather than both cut
+ *     spurious detections across the scenario set from 18 to 4 with no loss of sensitivity.
+ *  4. Search-back: if no candidate is found for 1.6 × the running RR, the segment is re-examined at
+ *     half the threshold, so a single small complex between large ones is recovered rather than lost.
+ *  5. The run's extent is widened to where D falls below 30 % of that complex's own peak; onset and
+ *     offset are refined afterwards against the complex's own slope, as before.
+ *
+ * This is the standard Pan–Tompkins arrangement (adaptive threshold + refractory period + search-back)
+ * applied to a spatial slope instead of a single filtered lead, which is what the multi-lead evidence
+ * buys: a complex that is isoelectric in one lead still contributes slope in the others.
+ */
+export function detectQrs(D: Float32Array, dt: number): [number, number][] {
+  const n = D.length;
+  const refrac = Math.max(1, Math.round(QRS_REFRACTORY_MS / dt));
+  const initEnd = Math.min(n, Math.round(LOCAL_WINDOW_MS / dt));
+  let peak = 0;
+  let mean = 0;
+  for (let s = 0; s < initEnd; s++) {
+    peak = Math.max(peak, D[s]);
+    mean += D[s];
+  }
+  if (peak <= 1e-6) return [];
+  mean /= Math.max(1, initEnd);
+  // Running estimates of the signal and the noise level (Pan & Tompkins 1985). A deflection that
+  // fails the threshold raises the NOISE level, which raises the threshold; this is what stops a
+  // small deflection from dragging the threshold down and admitting the next one (a median of
+  // accepted peaks does not: measured, one accepted P wave was enough to start accepting all of them).
+  let spki = peak;
+  let npki = 0.5 * mean;
+  const thr1 = () => npki + QRS_THRESHOLD_FRACTION * (spki - npki);
+  const accepted: number[] = [];
+  const rrOf = () => {
+    if (accepted.length < 2) return 0;
+    const d: number[] = [];
+    for (let k = Math.max(1, accepted.length - 8); k < accepted.length; k++) d.push(accepted[k] - accepted[k - 1]);
+    d.sort((a, b) => a - b);
+    return d[d.length >> 1];
+  };
+  const isLocalMax = (s: number) => s > 0 && s < n - 1 && D[s] >= D[s - 1] && D[s] >= D[s + 1];
+  /** Width (samples) of the deflection around `s`, measured at 30 % of its own peak. */
+  const width = (s: number) => {
+    const lim = 0.3 * D[s];
+    let a = s;
+    while (a > 1 && D[a - 1] > lim) a--;
+    let b = s;
+    while (b < n - 2 && D[b + 1] > lim) b++;
+    return b - a + 1;
+  };
+  /**
+   * T-wave discrimination: inside the T window a candidate must be both nearly as steep as the
+   * preceding complex and no broader than it. A T wave fails one or both; a genuine premature beat
+   * passes, being at least as steep and no broader.
+   */
+  const isTWave = (s: number, last: number) =>
+    (s - last) * dt < T_WAVE_WINDOW_MS && (D[s] < T_WAVE_SLOPE_RATIO * D[last] || width(s) > T_WAVE_WIDTH_RATIO * width(last));
+  for (let s = 1; s < n - 1; s++) {
+    const last = accepted[accepted.length - 1];
+    if (last !== undefined && s - last < refrac) continue;
+    if (!isLocalMax(s)) continue;
+    // search-back: nothing accepted for 1.6 RR → re-examine the gap at half the threshold
+    const rr = rrOf();
+    if (last !== undefined && rr > 0 && s - last > 1.6 * rr) {
+      const half = 0.5 * thr1();
+      let bestS = -1;
+      for (let k = last + refrac; k < s; k++) {
+        if (!isLocalMax(k) || D[k] <= half || isTWave(k, last)) continue;
+        if (bestS < 0 || D[k] > D[bestS]) bestS = k;
+      }
+      if (bestS >= 0) {
+        accepted.push(bestS);
+        spki = 0.25 * D[bestS] + 0.75 * spki; // recovered beat: weaker update than a clean detection
+        s = bestS + refrac;
+        continue;
+      }
+    }
+    if (D[s] > thr1() && !(last !== undefined && isTWave(s, last))) {
+      accepted.push(s);
+      spki = 0.125 * D[s] + 0.875 * spki;
+    } else {
+      npki = 0.125 * D[s] + 0.875 * npki;
+    }
+  }
+  // widen each accepted peak to the extent of its own complex
+  const out: [number, number][] = [];
+  for (const p of accepted) {
+    const lim = 0.3 * D[p];
+    let a = p;
+    while (a > 1 && D[a - 1] > lim) a--;
+    let b = p;
+    while (b < n - 2 && D[b + 1] > lim) b++;
+    const prev = out[out.length - 1];
+    if (prev && a - prev[1] < refrac / 2) prev[1] = Math.max(prev[1], b + 1);
+    else out.push([a, b + 1]);
+  }
+  return out;
+}
+
 /**
  * @param ecg interleaved channels (N_CHANNELS per sample)
  * @param dt  sample interval (ms)
@@ -83,18 +213,7 @@ export function measureBeats(ecg: Float32Array, dt: number, i0: number, waves: W
   if (dMax <= 1e-6) return [];
 
   // ---- QRS candidates --------------------------------------------------------------
-  const thr = 0.3 * dMax;
-  const runs: [number, number][] = [];
-  let s = 0;
-  while (s < n) {
-    if (D[s] > thr) {
-      const a = s;
-      while (s < n && D[s] > thr) s++;
-      const last = runs[runs.length - 1];
-      if (last && (a - last[1]) * dt < 80) last[1] = s;
-      else runs.push([a, s]);
-    } else s++;
-  }
+  const runs = detectQrs(D, dt);
   const beats: BeatMeasurement[] = [];
   const toT = (k: number) => (i0 + k) * dt;
   let prevTEndIdx = 0;

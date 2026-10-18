@@ -1,8 +1,8 @@
-# Test results — v1.6.0
+# Test results — v1.7.0
 
-Run on the v1.6.0 code base (headless Chromium 1194 for end-to-end tests).
+Run on the v1.7.0 code base (headless Chromium 1194 for end-to-end tests).
 
-## Unit / physiology (`npx vitest run`): 114 / 114 passed
+## Unit / physiology (`npx vitest run`): 144 / 144 passed
 
 | File | Tests | Covers |
 |---|---|---|
@@ -10,6 +10,9 @@ Run on the v1.6.0 code base (headless Chromium 1194 for end-to-end tests).
 | tests/physiology/rateDependence.test.ts | 4 | Rate → QT and AV-nodal conduction, vagal effects |
 | tests/simulation/engine.test.ts | 12 | Determinism, checkpoint/restore replay, parameter changes only after t, AV-nodal block, escape rhythms, premature activation, refractoriness |
 | tests/physiology/ischaemia.test.ts | 15 | v1.5.0: AHA territories; ST patterns of Marriott's seven culprit risk areas (incl. V4R, V7–V8); ST size vs human balloon occlusion (LAD calibrated; RCA and LCx independent). v1.6.0: the five phases of infarction for a proximal LAD and a distal RCA — T tall then inverted then upright, ST building then falling to the baseline, Q waves appearing and permanent; QRS stays narrow (dead tissue silent but conducting); the TP segment stays flat in every lead once tissue is removed from the lead field |
+| tests/ecg/qrsDetection.test.ts | 8 | v1.7.0: detection is causal (a later high-amplitude segment cannot erase earlier detections — the defect found by review), unchanged prefixes give unchanged detections under any later gain, low-amplitude and drifting records, T-wave discrimination in severe hyperkalaemia, refractory spacing, search-back for one attenuated beat, sensitivity ≥ 90 % against simulator labels across organised rhythms, and no worse than the global-threshold rule it replaced |
+| tests/physiology/torsadesEpisode.test.ts | 13 | v1.7.0: disabling the generator mid-episode stops it; any torsades parameter change voids queued events; mid-episode snapshot → restore → replay is identical; re-enabling starts a fresh episode; no episodes on a normal-QT substrate and episodes on the long-QT one; the source path advances a whole site every beat and turns the axis by about the requested amount; pre-v1.7 saved files are migrated |
+| tests/physiology/causalConsistency.test.ts | 9 | v1.7.0: the ECG and the 3-D activation share one source — the tracing is flat whenever the myocardium has been quiet, Einthoven and Goldberger hold at every instant, every torsades complex is anchored to its activation, and switching the generator off leaves sinus rhythm; the twist is measured with unreliable axes near vector nulls excluded (net rotation, straightness), and successive complexes change gradually rather than by steps |
 | tests/physiology/mcells.test.ts | 4 | v1.6.0: the M-cell zone is ventricular only, peaks mid-wall and is an island bounded in the plane of the wall rather than a layer; APD rises monotonically with the boost; Tpeak–Tend stays in the human range and the QRS is untouched |
 | tests/ecg/ecg.test.ts | 12 | Forward model and measurement pipeline; v1.4.0: sinus QRS amplitudes within ×2 of six population medians, restated QRS-onset coherence (earliest lead ≤ 10 ms, every lead ≤ 30 ms) |
 
@@ -34,6 +37,21 @@ Scenario tests check mechanism signatures from the simulator's own records, not 
 - **PVC:** concealed retrograde block of the next sinus P and an exactly compensatory pause.
 - **AVNRT:** ≥ 8 cycles via slow-antegrade / fast-retrograde conduction; since v1.4.0 CL within 317 ± 2·43 ms (Katritsis 2015) and retrograde atrial activation within the QRS.
 - **Antidromic AVRT:** pre-excited complexes with retrograde AV-nodal conduction.
+
+## QRS detection accuracy (v1.7.0)
+
+Measured against the simulator's own wave records (`scripts/dev/qc/detect-compare.ts`,
+`detect-accuracy.ts`), which the detector never sees.
+
+| | old (global threshold) | new (adaptive) |
+|---|---|---|
+| detector alone, all scenarios | 94.1 % sensitivity, 42 spurious | **95.5 %, 4 spurious** |
+| full pipeline, all scenarios | — | 92.2 %, 10 spurious |
+| full pipeline, excluding fibrillation | — | **96.6 %, 10 spurious** |
+
+Fibrillation is excluded from the headline figure because there are no discrete complexes to detect
+(4 of 33 activations matched); rhythm-level measures are used for it instead. The remaining misses are
+antidromic AVRT (10 of 21) and fast focal VT (3 of 22), where activations fuse.
 
 ## End-to-end (`npx playwright test`): 21 / 21 passed
 

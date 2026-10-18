@@ -1,7 +1,7 @@
 {
   "name": "cardiosim-lab",
   "private": true,
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "CardioSim Lab - interactive cardiac electrophysiology and 12-lead ECG simulator (research education / concept demonstration; not a clinical tool)",
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
     "build:standalone": "vite build --mode standalone",
     "preview": "vite preview",
     "test": "vitest run",
+    "typecheck:dev": "tsc --noEmit -p tsconfig.dev.json",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "validate": "tsx scripts/validate-baseline.ts"

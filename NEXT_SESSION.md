@@ -1,6 +1,24 @@
 # NEXT_SESSION — checkpoint
 
-_Last updated: v1.6.0 (torsades re-examined and rebuilt, M-cell island, all five phases of infarction)._
+_Last updated: v1.7.0 (QC review: torsades episode state machine, adaptive QRS detection)._
+
+## v1.7.0 notes
+- **Torsades is an explicit state machine** (`src/simulation/core/torsades.ts`): idle → priming →
+  trigger → run → recovery. Every queued event carries `tdp.epoch`; `torsadesCancel()` bumps it and
+  voids them. The state is in `SimSnapshot`. If you add a new way to schedule a torsades event, it
+  MUST carry the epoch or disabling the generator will not stop it.
+- **Only src === -6 advances the chain** (`tdpFiring`); the paired loop uses src === -7 and never
+  touches the state machine. Letting both advance it made the chain branch exponentially.
+- **The source steps by QRS AXIS, not by anatomical site** (`advanceIndex`). The path is ordered
+  anatomically (spatial continuity keeps the run alive); each site carries the axis a beat from it
+  produces, computed as the summed lead-field dipole within 35 mm (`siteAxis`). Do NOT reorder the
+  path by axis — tried, runs die in 1-2 beats.
+- **The run is gated on the substrate** (`canTrigger`): APD at the EAD site must exceed the take-off
+  coupling. This is what makes a normal-QT substrate silent. It is a threshold, not EAD dynamics.
+- **QRS detection** (`detectQrs` in measurements.ts) is Pan-Tompkins on the multi-lead spatial slope.
+  Two traps, both hit during the rewrite: a median-of-accepted-peaks threshold cascades (one accepted
+  P wave admits the rest), and the T-wave rule must reject on slope OR width, not both.
+- Dev scripts are type-checked: `npm run typecheck:dev`. QC reproductions live in `scripts/dev/qc/`.
 
 ## v1.6.0 notes
 - **Torsades cannot be made emergent in this engine, and that is now measured, not assumed.** Capture is

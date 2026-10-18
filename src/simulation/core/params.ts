@@ -131,10 +131,10 @@ export interface SimParams {
    */
   torsades: {
     enabled: boolean;
-    /** Ring sites the source advances per beat (fractional): the meander speed of the rotor. */
-    drift: number;
-    /** Number of sites in the circumferential ring the source drifts around. */
-    ringSize: number;
+    /** Degrees of QRS axis the source advances per beat: the meander speed of the rotor. */
+    twistDeg: number;
+    /** Angular resolution of the source path (candidate sites, one per 360/pathSites degrees). */
+    pathSites: number;
     /** Milliseconds after local recovery at which the drifting source re-excites a site. */
     margin: number;
     /** Delay of a second, counter-rotating loop (0 = a single source). */
@@ -241,7 +241,7 @@ export const DEFAULT_PARAMS: SimParams = {
   forward: { limbGain: 1.0, precordialGain: 0.8 },
   rhythm: { sinusArrest: false, saExitBlockEvery: 0 },
   accessory: { site: "none", conductionTime: 15, anteErp: 280, retroErp: 260, antegrade: true },
-  torsades: { enabled: false, drift: 0.35, ringSize: 16, margin: 10, pairOffset: 45, beats: 34, every: 10, coupling: 390 },
+  torsades: { enabled: false, twistDeg: 18, pathSites: 48, margin: 30, pairOffset: 0, beats: 18, every: 10, coupling: 390 },
   ectopy: { site: "none", pattern: "single", coupling: 450, every: 4, runLength: 3, rate: 150, shot: 0 },
 };
 
@@ -884,29 +884,29 @@ PARAM_META.push(
     "Anterolateral LV activated late. Limitation: this model does not reproduce the expected left-axis deviation (see SCIENTIFIC_LIMITATIONS)."),
   sw("hisPurkinje.lpfBlock", "Left posterior fascicular block", "Conduction block", "Left posterior fascicle", "Conduction in the posterior fascicle is abolished.",
     "Inferoposterior LV activated late (expected rightward axis shift)."),
-  sw("torsades.enabled", "Torsades generator (drifting re-entrant source)", "Triggered activity", "Ventricular myocardium (two triggered foci)",
-    "After a short–long sequence, a run of triggered beats whose site of origin migrates around the ventricles, one step per beat. Because each beat starts somewhere new, the activation direction — and so the QRS axis — turns progressively, and the amplitude in any one lead swells and collapses as the axis sweeps through that lead's null.",
+  sw("torsades.enabled", "Torsades generator (drifting re-entrant source)", "Triggered activity", "Ventricular myocardium (M-cell island and a mid-wall source path)",
+    "After a short–long sequence, a run of triggered beats whose site of origin migrates around the ventricles. Because each beat starts somewhere new, the activation direction — and so the QRS axis — turns progressively, and the amplitude in any one lead swells and collapses as the axis sweeps through that lead's null. The run only starts if the action potential where the EAD arises is still repolarising at the takeoff time, so it does nothing on a normal-QT substrate.",
     "A self-terminating polymorphic run whose complexes wax and wane; use on a long-QT substrate.",
     "Reduced-order stand-in for a drifting rotor. Simulation and optical-mapping work attributes the undulating QRS of torsades to drift of a spiral wave (a Doppler effect); see Yamazaki & Jalife-group work reviewed in Front Cardiovasc Med 2024;11:1363848."),
-  num("torsades.drift", "Source drift rate", "sites/beat", 0.05, 2, 0.05, "Triggered activity", "Drifting source (rotor meander)",
-    "How far the source moves around the ring each beat. The meander speed of a drifting rotor: it sets how fast the activation direction, and so the QRS axis, turns.",
-    "Lower → a slower twist and longer amplitude spindles; one spindle pair per complete turn, i.e. every ringSize/drift beats.",
+  num("torsades.twistDeg", "Source twist per beat", "deg/beat", 2, 90, 1, "Triggered activity", "Drifting source (rotor meander)",
+    "How far the QRS axis turns each beat. The source path is ordered by the axis each site produces, so this is the twist rate directly rather than a number of anatomical sites.",
+    "Lower → a slower twist and longer amplitude spindles; one spindle pair per complete turn, i.e. every 360/twistDeg beats.",
     "Calibrated so that the spindles last 5–20 beats, the range seen on clinical recordings."),
-  num("torsades.ringSize", "Drift ring size", "sites", 6, 24, 1, "Triggered activity", "Circumferential ring of mid-wall ventricular sites",
-    "How many positions the drifting source steps through in one turn around the ventricles.",
-    "More sites → a slower twist: one complete turn, and so one amplitude spindle pair, every ringSize beats.",
-    "Nominal; the ring is an idealised circle, not a mapped rotor trajectory."),
+  num("torsades.pathSites", "Source path resolution", "sites", 12, 96, 4, "Triggered activity", "Mid-wall ventricular sites ordered by QRS axis",
+    "How finely the source path samples the circle of possible QRS axes. Each beat starts at the site whose axis is nearest the advancing angle.",
+    "Higher → the realised twist matches the requested one more closely; too low and the source repeats sites and then jumps.",
+    "Nominal; the path is an idealised intramural trajectory, not a mapped rotor track."),
   num("torsades.margin", "Re-excitation margin", "ms", 0, 80, 5, "Triggered activity", "Drifting source",
     "How long after a site has recovered the drifting source re-excites it. The cycle length is therefore set by local refractoriness, not imposed.",
     "Larger → slower runs; large enough values stop the run self-terminating.",
     "Nominal; the cycle length it produces is checked against the reported torsades rate of 180–250 /min."),
   num("torsades.pairOffset", "Paired loop offset", "ms", 0, 150, 5, "Triggered activity", "Second, counter-rotating loop",
-    "Delay of a second source on the far side of the ring turning the other way (0 = a single source).",
+    "Delay of a second source half a turn around the path, turning the other way (0 = a single source, the default since v1.7.0).",
     "With a second loop the two vectors never cancel completely, so the amplitude waxes and wanes instead of vanishing, and the tracing keeps no isoelectric baseline.",
     "Non-terminating episodes carried 2.7 ± 1.5 simultaneous re-entry loops against 1.3 ± 0.7 in self-terminating ones (Van Den Abeele et al., Front Physiol 2023)."),
-  num("torsades.beats", "Run length", "beats", 4, 60, 1, "Triggered activity", "Both foci", "Approximate number of beats in each run before the triggered activity stops.", "Longer → longer episodes; the rhythm self-terminates when the run ends.", "Nominal."),
-  num("torsades.every", "Sinus beats between runs", "k", 3, 20, 1, "Triggered activity", "Both foci", "How often the short–long–short sequence and run recur.", "Smaller → more frequent episodes.", "Nominal."),
-  num("torsades.coupling", "Triggered coupling interval", "ms", 250, 600, 5, "Triggered activity", "Both foci", "Delay from the preceding QRS onset to the first triggered beat.", "Default 390 ms is the EAD takeoff time measured in the TP06 cell.", "Measured in this implementation of TP06 (scripts/dev/ead-timing.ts)."),
+  num("torsades.beats", "Run length", "beats", 4, 60, 1, "Triggered activity", "Drifting source", "Approximate number of beats in each run before the triggered activity stops.", "Longer → longer episodes; the rhythm self-terminates when the run ends.", "Nominal."),
+  num("torsades.every", "Sinus beats between runs", "k", 3, 20, 1, "Triggered activity", "Drifting source", "How often the short–long–short sequence and run recur.", "Smaller → more frequent episodes.", "Nominal."),
+  num("torsades.coupling", "Triggered coupling interval", "ms", 250, 600, 5, "Triggered activity", "EAD site (longest action potential)", "Delay from the preceding QRS onset to the first triggered beat, and the threshold the local action potential must exceed for the run to start at all.", "Default 390 ms is the EAD takeoff time measured in the TP06 cell.", "Measured in this implementation of TP06 (scripts/dev/ead-timing.ts)."),
   ch("ectopy.site", "Ectopic focus", "Ectopy", ECTOPIC_SITES, "Atrial or ventricular myocardium",
     "Location at which premature (ectopic) excitations are injected.", "Origin determines the activation sequence and therefore P-wave or QRS morphology."),
   ch("ectopy.pattern", "Ectopy pattern", "Ectopy", ECTOPY_PATTERNS, "Timing of ectopic excitations",
@@ -965,6 +965,13 @@ export function sanitizeParams(raw: unknown): SimParams {
     } else if (typeof v === "number" && Number.isFinite(v)) {
       o[g][k] = Math.min(m.max, Math.max(m.min, v));
     }
+  }
+  // v1.6 and earlier stored the torsades drift as sites/beat around a ring of ringSize sites;
+  // the path is now ordered by QRS axis, so convert the old pair into degrees of axis per beat.
+  const tor = r.torsades as Record<string, unknown> | undefined;
+  if (typeof tor?.drift === "number" && typeof tor?.ringSize === "number" && tor.ringSize > 0 && (tor as Record<string, unknown>).twistDeg === undefined) {
+    const meta = PARAM_META.find((m) => m.path === "torsades.twistDeg")!;
+    out.torsades.twistDeg = Math.min(meta.max, Math.max(meta.min, (360 * tor.drift) / tor.ringSize));
   }
   // Phase-1 files stored retrograde conduction as a boolean
   const avn = r.avNode as Record<string, unknown> | undefined;

@@ -63,9 +63,13 @@ test.describe("CardioSim Lab", () => {
     await page.waitForFunction(() => (window as unknown as { __cardiosim?: { sim?: { data?: { tEnd: number } } } }).__cardiosim?.sim?.data?.tEnd !== undefined
       && (window as unknown as { __cardiosim: { sim: { data: { tEnd: number } } } }).__cardiosim.sim.data.tEnd > 3000, null, { timeout: 30000 });
     const box = (await page.locator('[data-testid="ecg-canvas"]').boundingBox())!;
-    // rhythm strip (bottom row), early part of the page
-    await page.mouse.click(box.x + 60, box.y + box.height * 0.85);
-    await expect(page.locator('[data-testid="inspect-box"]')).toBeVisible();
+    // rhythm strip (bottom row), early part of the page. The click is rejected if it lands on a part
+    // of the strip the clock has not reached yet, which depends on how far the sweep has run, so
+    // retry rather than assume one click lands — the assertion below is unchanged.
+    await expect(async () => {
+      await page.mouse.click(box.x + 60, box.y + box.height * 0.85);
+      await expect(page.locator('[data-testid="inspect-box"]')).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 20000 });
     await expect(page.locator('[data-testid="inspect-box"]')).toContainText(/P wave|PR segment|QRS complex|ST segment|T wave|Isoelectric/);
   });
 

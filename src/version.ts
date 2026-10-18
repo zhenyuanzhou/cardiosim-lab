@@ -1,3 +1,3 @@
 /** Application version (keep in sync with package.json and CHANGELOG.md). */
-export const APP_VERSION = "1.6.0";
-export const RELEASE_DATE = "2026-10-17";
+export const APP_VERSION = "1.7.0";
+export const RELEASE_DATE = "2026-10-18";

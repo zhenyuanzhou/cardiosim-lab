@@ -16,6 +16,53 @@
 import { N_CHANNELS } from "./leadField";
 import type { SimOutput } from "../core/engine";
 
+/**
+ * Beat-by-beat frontal axis of a run, unwrapped, with unreliable beats excluded.
+ *
+ * Near a null of the frontal vector the angle is the arctangent of two small numbers and carries no
+ * information, so a beat whose peak frontal magnitude is below `minFraction` of the run's median is
+ * reported as null rather than as an angle. Callers must skip those rather than treat them as data:
+ * including them turns a smooth rotation into a zigzag.
+ */
+export function beatAxes(o: SimOutput, dt: number, beats: { t: number; span: number }[], minFraction = 0.2): { axis: number | null; magnitude: number }[] {
+  const out: { axis: number | null; magnitude: number }[] = [];
+  for (const b of beats) {
+    let best = -1;
+    let ax = 0;
+    for (let t = b.t; t < b.t + Math.max(60, b.span); t += dt) {
+      const i = Math.round(t / dt) * N_CHANNELS;
+      const mag = Math.hypot(o.ecg[i + 12], o.ecg[i + 13]);
+      if (mag > best) {
+        best = mag;
+        ax = (Math.atan2(o.ecg[i + 13], o.ecg[i + 12]) * 180) / Math.PI;
+      }
+    }
+    out.push({ axis: ax, magnitude: best });
+  }
+  const mags = out.map((x) => x.magnitude).filter((x) => x > 0).sort((a, b) => a - b);
+  const med = mags.length ? mags[mags.length >> 1] : 0;
+  for (const x of out) if (x.magnitude < minFraction * med) x.axis = null;
+  return out;
+}
+
+/**
+ * Cumulative unwrapped rotation of a sequence of axes, skipping unreliable ones, and the ratio of net
+ * to total rotation ("straightness"): 1 = a steady progressive twist, 0 = oscillation about a mean.
+ */
+export function axisProgression(axes: (number | null)[]): { net: number; total: number; straightness: number; used: number } {
+  const xs = axes.filter((a): a is number => a !== null);
+  let net = 0;
+  let total = 0;
+  for (let i = 1; i < xs.length; i++) {
+    let d = xs[i] - xs[i - 1];
+    while (d > 180) d -= 360;
+    while (d <= -180) d += 360;
+    net += d;
+    total += Math.abs(d);
+  }
+  return { net, total, straightness: total > 0 ? Math.abs(net) / total : 0, used: xs.length };
+}
+
 export interface TdpMetrics {
   cl: number;
   rate: number;

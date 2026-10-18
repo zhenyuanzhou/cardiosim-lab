@@ -9,6 +9,7 @@
 | M5 | Re-entry via lumped links (AVNRT, orthodromic/antidromic AVRT, pre-excitation), focal AT/VT, TP06 ionic cell lab, Group E mapped scenarios | done; scar VT, flutter, AF, VF and TdP unsupported |
 | M6 | Lessons L1–L8 with quizzes, A/B side-by-side mode, narrow-layout ECG, tests, documentation | done |
 | Video | 1080p30 MP4 demonstration with captions | see `video/` |
+| 1.7 | QC review (independent): torsades episode state machine with epoch cancellation and snapshot replay, substrate gating, axis-stepped source path; adaptive multi-lead QRS detection; causal-consistency tests; staged mechanistic proposal | done |
 | 2b | User feedback: flicker-free sweep displays (lead strips, A/B, ECG selected leads; pixel-quantised AP scrolling), premature-beat controls (fire one / patterns), atrial flutter and AF models, rhythm-level measurements, revised APD restitution, retrograde Purkinje delay, LBBB validated | done |
 
 ## Scenario registry (`docs/scenario-registry.json`)

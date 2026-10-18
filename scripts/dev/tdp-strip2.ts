@@ -9,7 +9,7 @@ const [floor, drift, pair, ring, margin, tag] = [+process.argv[2], +process.argv
 const p = SCENARIOS.find((x) => x.id === "tdp")!.apply!();
 p.restitution.apdFloor = floor;
 if (process.argv[8]) p.restitution.cvAmplitude = +process.argv[8];
-p.torsades = { ...p.torsades, drift, pairOffset: pair, ringSize: ring, margin };
+p.torsades = { ...p.torsades, twistDeg: drift, pairOffset: pair, pathSites: ring, margin };
 const r = run(p, 24000);
 const foci = r.out.waves.filter((w) => w.site === "torsades focus" && Number.isFinite(w.tFirstVent)).sort((x, y) => x.tFirstVent - y.tFirstVent);
 const starts = foci.filter((w, i) => i === 0 || w.tFirstVent - foci[i - 1].tFirstVent > 600);

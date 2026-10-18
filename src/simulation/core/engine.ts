@@ -18,6 +18,7 @@ import { CT, EK, type CardiacModel } from "./model";
 import { cloneParams, isAtrialSite, type SimParams } from "./params";
 import { derive, type Derived } from "./derive";
 import { EV_AUTO, EV_EXCITE, EventQueue, type QueueSnapshot } from "./eventQueue";
+import { advanceIndex, canTrigger, cloneTdpState, emergenceSite, newTdpState, torsadesPath, TDP_MAX_RETRY, type TdpSite, type TdpState } from "./torsades";
 import { Rng } from "./rng";
 import { DYNAMIC_RESTITUTION, shapesFor, type Shape, apdDynamic, repolMidpoint, steadyStateScale, ventricularNotchScale, workingA } from "../cellular/actionPotential";
 import { N_CHANNELS, N_COLS, columnsToChannels, computeLeadField } from "../ecg-forward/leadField";
@@ -112,7 +113,8 @@ export interface SimSnapshot {
   linkLastEntry: Float64Array;
   linkDir: Int8Array;
   linkTransit: Int32Array;
-  counters: { ectopy: number; san: number; his: number; focusEpoch: number; tdp: number };
+  counters: { ectopy: number; san: number; his: number; focusEpoch: number };
+  tdp: TdpState;
   childOf: [number, number][];
   waveCounter: number;
   active: Int32Array;
@@ -161,7 +163,7 @@ export class Simulator {
   linkTransit: Int32Array;
   readonly linkOf: Int16Array;
   readonly upperMask: Uint8Array;
-  counters = { ectopy: 0, san: 0, his: 0, focusEpoch: 0, tdp: 0 };
+  counters = { ectopy: 0, san: 0, his: 0, focusEpoch: 0 };
   /** Re-entry bookkeeping: wave → wave id used for its re-excitations. */
   childOf = new Map<number, number>();
   waveCounter = 0;
@@ -254,7 +256,7 @@ export class Simulator {
     this.linkLastEntry.fill(-cl + 40);
     this.linkDir.fill(0);
     this.linkTransit.fill(0);
-    this.counters = { ectopy: 0, san: 0, his: 0, focusEpoch: 0, tdp: 0 };
+    this.counters = { ectopy: 0, san: 0, his: 0, focusEpoch: 0 };
     this.childOf.clear();
     this.waveCounter = 0;
     this.queue.clear();
@@ -269,9 +271,7 @@ export class Simulator {
     this.recWave = [];
     this.ecgBuf = [];
     this.ecgStart = 0;
-    this.tdpPos = 0;
-    this.tdpLeft = 0;
-    this.tdpPending = -1;
+    this.tdp = newTdpState();
     this.recCount = 0;
     const m = this.model;
     // Pacemakers: SA node fires first at 40 ms; latent pacemakers are armed.
@@ -311,7 +311,7 @@ export class Simulator {
     rearm(m.hisProximal, old.junctionalCycle, this.d.junctionalCycle);
     rearm(m.ventEscape, old.ventricularEscapeCycle, this.d.ventricularEscapeCycle);
     const eo = JSON.stringify(oldParams.ectopy);
-    if (JSON.stringify(oldParams.torsades) !== JSON.stringify(this.params.torsades)) this.counters.tdp = 0;
+    if (JSON.stringify(oldParams.torsades) !== JSON.stringify(this.params.torsades)) this.torsadesCancel();
     if (eo !== JSON.stringify(this.params.ectopy)) {
       this.counters.focusEpoch++;
       this.counters.ectopy = 0;
@@ -384,18 +384,77 @@ export class Simulator {
       if (stamp !== this.counters.focusEpoch) return;
       this.armFocus(t + 60000 / Math.max(1, this.params.ectopy.rate));
     }
+    if (src === -6 || src === -7) {
+      // Torsades: a queued event is void if the generator has been switched off or reconfigured
+      // since it was scheduled (epoch token), so disabling stops the episode immediately.
+      if (!this.params.torsades.enabled || stamp !== this.tdp.epoch) return;
+      const s = this.tdp;
+      // Second, counter-rotating loop (-7). It must not touch the state machine: when both loops
+      // could advance it, each beat spawned two and the chain branched exponentially — measured, six
+      // stimuli inside 33 ms, which fuse into one complex and make the run look monomorphic.
+      const starting = s.phase === "trigger" || s.phase === "priming";
+      // Substrate gate: an EAD takes off during phase 3, so the action potential where it arises must
+      // still be repolarising at the take-off time. A normal-QT substrate fails this and nothing fires.
+      if (src === -6 && starting && !canTrigger(this.apd[s.gate >= 0 ? s.gate : node], this.params.torsades.coupling)) {
+        this.torsadesCancel();
+        return;
+      }
+      if (src === -7) {
+        if (t - this.lastAct[node] < this.erp[node]) return; // the far loop simply fails to capture
+      } else if (t - this.lastAct[node] < this.erp[node]) {
+        if (s.phase === "run") {
+          // The site has not recovered yet — usually because the previous wavefront reached it after
+          // the re-excitation was scheduled. The documented rule is to fire as soon as the tissue has
+          // recovered, so wait for its recovery time; give up (self-terminate) after a few attempts.
+          const due = this.lastAct[node] + this.erp[node] + this.params.torsades.margin;
+          if (s.retry < TDP_MAX_RETRY && due > t) {
+            s.retry++;
+            this.queue.push(due, node, -6, -1, EV_EXCITE, s.epoch);
+            return;
+          }
+          s.phase = "recovery";
+          s.pending = -1;
+          return;
+        }
+        // The EAD's own cell is still refractory — expected, since the take-off is during its phase 3.
+        // The wavefront emerges in the nearest recovered tissue instead; if there is none it dies.
+        if (!starting || s.redirected) {
+          this.torsadesCancel();
+          return;
+        }
+        const out = emergenceSite(this.tdpPath, s.angle, t, this.lastAct, this.erp);
+        if (!out) {
+          this.torsadesCancel();
+          return;
+        }
+        s.redirected = true;
+        s.pending = out.node;
+        s.angle = out.axis;
+        s.index = Math.max(0, this.tdpPath.findIndex((x) => x.node === out.node));
+        this.queue.push(t, out.node, -6, -1, EV_EXCITE, s.epoch);
+        return;
+      }
+      if (src === -6) {
+        s.retry = 0;
+        if (s.phase === "trigger") s.phase = "run";
+        else if (s.phase === "priming") s.phase = "idle"; // isolated beat of the long–short sequence
+      }
+    }
     if (t - this.lastAct[node] < this.erp[node]) return; // refractory → conduction block here
     if (wave < 0) {
       // externally injected stimulus or ectopic focus
       wave = ++this.waveCounter;
       const w = newWave(wave, "ectopic", node, t);
-      w.site = src === -4 || src === -5 ? this.params.ectopy.site : src === -6 ? "torsades focus" : "stimulus";
+      w.site = src === -4 || src === -5 ? this.params.ectopy.site : src === -6 || src === -7 ? "torsades focus" : "stimulus";
       this.waves.set(wave, w);
     } else if (this.lastWave[node] === wave && src >= 0) {
       // the same wave re-excites tissue it already activated → a re-entrant cycle has completed
       wave = this.childWave(wave, node, t, "reentry");
     }
+    // Only the source's own excitation advances the chain, so exactly one beat follows each beat.
+    this.tdpFiring = src === -6;
     this.activate(node, t, wave, false);
+    this.tdpFiring = false;
   }
 
   private childWave(parent: number, node: number, t: number, origin: WaveOrigin, site = ""): number {
@@ -525,7 +584,7 @@ export class Simulator {
     }
     this.record(node, t, wave);
     this.updateWave(node, t, wave, apd);
-    if (this.tdpLeft > 0) this.torsadesAdvance(node, t);
+    if (this.tdpFiring && this.tdp.phase === "run") this.torsadesAdvance(node, t);
 
     // Latent / dominant pacemakers: arm next automaticity check (overdrive reset)
     if (node === m.san || node === m.hisProximal || node === m.ventEscape) {
@@ -662,110 +721,120 @@ export class Simulator {
   }
 
   /**
-   * Torsades generator — a drifting re-entrant source, gated by local recovery.
+   * Torsades generator — a drifting source on a path ordered by the QRS axis each site produces,
+   * gated by local recovery for its rate and by the substrate for whether it may start at all.
    *
-   * What the mapping literature says, and what this reproduces:
-   *  • Initiation is focal, after a long–short sequence: a long–short ventricular cycle preceded 41 of
-   *    44 episodes (Kay et al., JACC 1983), and every mapped episode began with focal (EAD-triggered)
-   *    activity (Vandersickel et al., JACC Clin Electrophysiol 2017).
-   *  • Perpetuation of the longer episodes is re-entrant; short ones stay focal (same study; and
-   *    Van Den Abeele et al., Front Physiol 2023, where non-terminating episodes carried 2.7 ± 1.5
-   *    simultaneous loops against 1.3 ± 0.7 in self-terminating ones).
-   *  • The undulating axis comes from DRIFT of the source: nonstationary scroll waves give undulating
-   *    ECGs and stationary ones monomorphic ECGs (Gray et al., Circulation 1995).
-   *  • During re-entry "excitation fronts were constantly present in the heart", whereas focal
-   *    torsades leaves a silent interval of ≈ 142 ms between waves (Vandersickel 2017) — which is why
-   *    a torsades tracing has no isoelectric baseline.
-   *
-   * Implementation. The source travels around a circumferential ring of ventricular sites, one step
-   * per beat, and fires AT EACH SITE AS SOON AS THAT TISSUE HAS RECOVERED (local ERP + a short
-   * margin) rather than on an imposed schedule. Three things follow from that rule instead of being
-   * tuned: the cycle length (set by refractoriness on the long-QT substrate), the fact that the next
-   * wavefront begins while the previous one is still propagating (no isoelectric baseline), and
-   * self-termination when no site recovers in time. A second loop on the far side of the ring, turning
-   * the other way, reproduces the paired "figure-of-eight" source of the longer episodes; with it the
-   * two vectors never cancel completely, so the amplitude waxes and wanes instead of vanishing.
-   *
-   * The ring is a reduced-order stand-in: this engine has no curvature or source–sink physics, so it
-   * cannot grow a true meandering spiral wave.
+   * The mechanism, the evidence behind it, and precisely which transitions are scripted rather than
+   * emergent are documented in `core/torsades.ts`. Everything downstream of the source — the 12-lead
+   * tracing, the activation sequence, the action potentials — is computed from the same tissue model
+   * as every other rhythm; there is no separate synthetic waveform.
    */
-  private tdpRing: number[] = [];
-  private tdpPos = 0;
-  private tdpLeft = 0;
-  private tdpPending = -1;
+  tdp: TdpState = newTdpState();
+  /** True while the torsades source's own excitation is being processed (gates the chain). */
+  private tdpFiring = false;
+  private tdpPath: TdpSite[] = [];
+  private tdpPathBins = 0;
 
-  /** Mid-wall ventricular nodes evenly spaced by angle around the long axis. */
-  private torsadesRing(n: number): number[] {
-    if (this.tdpRing.length === n) return this.tdpRing;
-    const m = this.model;
-    const f = m.frame;
-    const best: { node: number; score: number }[] = Array.from({ length: n }, () => ({ node: -1, score: Infinity }));
-    for (let i = 0; i < m.n; i++) {
-      if (m.cellType[i] !== CT.VENTRICULAR) continue;
-      const ab = m.apicobasal[i];
-      if (ab < 0.25 || ab > 0.75) continue; // mid third along the long axis
-      const rx = m.pos[3 * i] - f.baseCenter[0];
-      const ry = m.pos[3 * i + 1] - f.baseCenter[1];
-      const rz = m.pos[3 * i + 2] - f.baseCenter[2];
-      const a = rx * f.septalDir[0] + ry * f.septalDir[1] + rz * f.septalDir[2];
-      const b = rx * f.anteriorDir[0] + ry * f.anteriorDir[1] + rz * f.anteriorDir[2];
-      const phi = Math.atan2(b, a);
-      const k = ((Math.round((phi / (2 * Math.PI)) * n) % n) + n) % n;
-      // prefer mid-wall, mid-level nodes: closest to transmural 0.5 and apicobasal 0.5
-      const score = Math.abs(m.transmural[i] - 0.5) + Math.abs(ab - 0.5);
-      if (score < best[k].score) best[k] = { node: i, score };
+  private torsadesSites(bins: number): TdpSite[] {
+    if (this.tdpPathBins !== bins) {
+      this.tdpPath = torsadesPath(this.model, this.baseW ?? this.W, bins);
+      this.tdpPathBins = bins;
     }
-    this.tdpRing = best.filter((x) => x.node >= 0).map((x) => x.node);
-    return this.tdpRing;
+    return this.tdpPath;
   }
 
+  /** Void every queued torsades event and return the episode to idle. */
+  private torsadesCancel(): void {
+    this.tdp.epoch++;
+    this.tdp.phase = "idle";
+    this.tdp.beatsLeft = 0;
+    this.tdp.pending = -1;
+    this.tdp.gate = -1;
+    this.tdp.redirected = false;
+    this.tdp.tStart = NaN;
+  }
+
+  /** Episode clock: advanced by each captured supraventricular beat. */
   private torsadesTick(w: WaveInfo, t: number): void {
     const tp = this.params.torsades;
-    if (!tp.enabled) return;
-    if (w.origin !== "sinus" && w.origin !== "junctional" && w.origin !== "ventricular-escape") return;
-    const ring = this.torsadesRing(Math.max(4, Math.round(tp.ringSize)));
-    if (ring.length < 4) return;
-    const k = Math.max(3, Math.round(tp.every));
-    this.counters.tdp = (this.counters.tdp || 0) + 1;
-    const c = this.counters.tdp % k;
-    if (c === k - 1) {
-      // the "short" cycle: one triggered beat, whose compensatory pause gives the long cycle
-      this.queue.push(t + tp.coupling, ring[0], -6, -1, EV_EXCITE, 0);
-    } else if (c === 0 && this.tdpLeft <= 0) {
-      this.tdpPos = 0;
-      this.tdpLeft = Math.max(2, Math.round(tp.beats));
-      this.tdpPending = ring[0];
-      this.queue.push(t + tp.coupling, ring[0], -6, -1, EV_EXCITE, 0);
+    const s = this.tdp;
+    if (!tp.enabled) {
+      if (s.phase !== "idle") this.torsadesCancel();
+      return;
     }
+    if (w.origin !== "sinus" && w.origin !== "junctional" && w.origin !== "ventricular-escape") return;
+    // Sinus activity continues underneath a run; most of it finds the ventricle refractory and does
+    // not capture. Only once the run has ended (recovery) does a captured sinus beat close the
+    // episode and re-arm the generator. Cancelling on any sinus beat instead truncated runs to a few
+    // complexes, because a sinus impulse reaching any ventricular tissue counts as a reference beat.
+    if (s.phase === "run") return;
+    if (s.phase === "recovery") {
+      this.torsadesCancel();
+      return;
+    }
+    const path = this.torsadesSites(Math.max(8, Math.round(tp.pathSites)));
+    if (path.length < 8) return;
+    const k = Math.max(3, Math.round(tp.every));
+    s.sinusCount++;
+    const c = s.sinusCount % k;
+    // The triggered beat starts where an EAD plausibly could: the site on the path with the longest
+    // action potential — in practice the M-cell island, which is where the wedge studies localise
+    // both the EAD and the zone of long refractoriness (Akar et al., Circulation 2002;105:1247).
+    let si = 0;
+    for (let k = 1; k < path.length; k++) if (this.apd[path[k].node] > this.apd[path[si].node]) si = k;
+    const start = path[si];
+    if (c !== k - 1 && c !== 0) return;
+    s.phase = c === k - 1 ? "priming" : "trigger";
+    s.index = si;
+    s.angle = start.axis;
+    s.gate = start.node;
+    s.pending = start.node;
+    s.redirected = false;
+    // the "short" cycle fires one isolated triggered beat, whose compensatory pause gives the long
+    // cycle before the run; the next arming starts the run itself
+    if (c === 0) {
+      s.beatsLeft = Math.max(2, Math.round(tp.beats));
+      s.tStart = t + tp.coupling;
+    }
+    this.queue.push(t + tp.coupling, start.node, -6, -1, EV_EXCITE, s.epoch);
   }
 
   /**
-   * Called when the drifting source's wave reaches the next site on the ring: that site has just been
-   * activated, so the soonest it can be re-excited is after its own refractory period.
+   * Called when the source's wave reaches the site it was expected at: that site has just been
+   * activated, so the soonest it can be re-excited is after its own refractory period. The source
+   * then advances a fixed increment of QRS AXIS, and the site nearest that axis carries the next beat.
    */
   private torsadesAdvance(node: number, t: number): void {
-    if (this.tdpLeft <= 0 || node !== this.tdpPending) return;
+    const s = this.tdp;
+    if (s.phase !== "run" || node !== s.pending) return;
     const tp = this.params.torsades;
-    const ring = this.tdpRing;
-    this.tdpLeft--;
-    if (this.tdpLeft <= 0) {
-      this.tdpPending = -1;
+    s.beatsLeft--;
+    if (s.beatsLeft <= 0) {
+      s.phase = "recovery";
+      s.pending = -1;
       return;
     }
-    // the source moves a fraction of a ring step per beat — the meander speed of the rotor
-    this.tdpPos += tp.drift;
-    const n = ring.length;
-    const idx = ((Math.round(this.tdpPos) % n) + n) % n;
-    const next = ring[idx];
-    // next cycle: as soon as the tissue at the new source has recovered (its own refractory period)
-    const at = t + Math.max(this.erp[node], this.erp[next]) + tp.margin;
-    this.queue.push(at, next, -6, -1, EV_EXCITE, 0);
-    if (tp.pairOffset > 0) {
-      // paired counter-rotating loop, reflected across the ring
-      const mate = ring[(((-idx) % n) + n) % n];
-      if (mate !== next) this.queue.push(at + tp.pairOffset, mate, -6, -1, EV_EXCITE, 0);
+    const ni = advanceIndex(this.tdpPath, s.index, tp.twistDeg);
+    const next = this.tdpPath[ni];
+    if (!next || next.node === node) {
+      s.phase = "recovery";
+      s.pending = -1;
+      return;
     }
-    this.tdpPending = next;
+    // next cycle: as soon as the tissue at the new source has recovered (its own refractory period)
+    s.index = ni;
+    s.angle = next.axis;
+    const at = t + Math.max(this.erp[node], this.erp[next.node]) + tp.margin;
+    this.queue.push(at, next.node, -6, -1, EV_EXCITE, s.epoch);
+    if (tp.pairOffset > 0) {
+      // Paired counter-rotating loop: half a turn AROUND THE PATH, i.e. the far side of the ventricle.
+      // Half a turn in AXIS is not the same thing — axis is not monotonic in position, so that can
+      // land on a site spatially adjacent to the first, which merely duplicates the beat (measured:
+      // the apparent rate doubled to 430–520 /min).
+      const mate = this.tdpPath[(ni + (this.tdpPath.length >> 1)) % this.tdpPath.length];
+      if (mate && mate.node !== next.node) this.queue.push(at + tp.pairOffset, mate.node, -7, -1, EV_EXCITE, s.epoch);
+    }
+    s.pending = next.node;
   }
 
   /**
@@ -858,6 +927,7 @@ export class Simulator {
       linkDir: this.linkDir.slice(),
       linkTransit: this.linkTransit.slice(),
       counters: { ...this.counters },
+      tdp: cloneTdpState(this.tdp),
       childOf: [...this.childOf],
       waveCounter: this.waveCounter,
       active: this.active.slice(0, this.activeLen),
@@ -884,6 +954,7 @@ export class Simulator {
     this.linkDir.set(s.linkDir);
     this.linkTransit.set(s.linkTransit);
     this.counters = { ...s.counters };
+    this.tdp = cloneTdpState(s.tdp);
     this.childOf = new Map(s.childOf);
     this.waveCounter = s.waveCounter;
     this.inActive.fill(0);

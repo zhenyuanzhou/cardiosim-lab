@@ -1,6 +1,6 @@
 /**
  * Tune the torsades generator against the quantitative criteria in ecg-forward/tdpMetrics.ts.
- * usage: tsx tdp-tune.ts <floors> <drifts> <pairOffsets> <ringSizes> [margins] [apd]
+ * usage: tsx tdp-tune.ts <floors> <twistDegs> <pairOffsets> <pathSites> [margins] [cvAmplitudes]
  */
 import { SCENARIOS } from "../../src/simulation/scenarios/scenarios";
 import { run } from "../../tests/helpers/sim";
@@ -45,18 +45,18 @@ if (process.argv[1].endsWith("tdp-tune.ts")) {
   const list = (v: string | undefined, d: string) => (v ?? d).split(",").map(Number);
   const results: { label: string; s: number }[] = [];
   for (const floor of list(process.argv[2], "0.6"))
-    for (const drift of list(process.argv[3], "0.35"))
+    for (const drift of list(process.argv[3], "22"))
       for (const pair of list(process.argv[4], "45"))
-        for (const ring of list(process.argv[5], "16"))
+        for (const ring of list(process.argv[5], "48"))
           for (const margin of list(process.argv[6], "10"))
           for (const cvAmp of list(process.argv[7], "0.5")) {
             const { m, run: rm } = measure((p) => {
               p.restitution.apdFloor = floor;
               p.restitution.cvAmplitude = cvAmp;
-              p.torsades = { ...p.torsades, drift, pairOffset: pair, ringSize: ring, margin };
+              p.torsades = { ...p.torsades, twistDeg: drift, pairOffset: pair, pathSites: ring, margin };
             });
             const s = score(m, rm);
-            const label = `floor${floor} drift${drift} pair${pair} ring${ring} margin${margin} cv${cvAmp}`;
+            const label = `floor${floor} twist${drift} pair${pair} path${ring} margin${margin} cv${cvAmp}`;
             results.push({ label, s });
             console.log(`${label}: ${fmt(m, rm)} | score ${s.toFixed(2)}`);
           }

@@ -1,5 +1,83 @@
 # Changelog
 
+## [1.7.0] — 2026-10-18
+
+An independent review of v1.5.0 found two reproducible bugs and several problems with how the
+torsades source was built. All were reproduced on v1.6.0 before anything was changed; this release
+fixes them and adds the regression coverage that would have caught them.
+
+### Torsades: the episode is now a state machine, and it can be stopped
+- **Disabling the generator mid-run did not stop it.** The whole run was scheduled in advance, so
+  switching it off prevented future scheduling only — 15 further stimuli fired in the next four
+  seconds. The generator is now an explicit state machine (`src/simulation/core/torsades.ts`:
+  idle → priming → trigger → run → recovery) and every queued event carries an **epoch token**;
+  disabling it, or changing any torsades parameter, voids everything already queued.
+- **The episode state was missing from the snapshot**, so a checkpoint taken mid-episode replayed
+  differently (28 stimuli against 0). It is now part of `SimSnapshot`, and mid-episode
+  snapshot → restore → replay is byte-identical.
+- Both are covered by `tests/physiology/torsadesEpisode.test.ts` (13 tests).
+
+### Torsades: the source
+- **The source repeated sites and then jumped.** Its position was a fractional index that was then
+  rounded, giving `0 1 1 2 2 3 4 4 5 5 …`; and the sites were spaced by anatomical angle, which
+  changed the frontal QRS axis by anything from −2° to +67° per step. Each site is now annotated with
+  the axis a beat from it produces, and the source advances a fixed increment of **axis** per beat,
+  walking as far along the path as that takes. The annotation is the summed lead-field dipole over the
+  tissue within one conduction radius, which predicts the realised axis to a median of 8° (checked
+  against beats simulated from every site on the path).
+- The path stays ordered **anatomically**. Ordering it by axis was tried and kills the run in one or
+  two beats, because consecutive sites are then spatially unrelated and the wavefront never arrives.
+- **The chain branched.** The paired counter-rotating loop and the propagation hook could both advance
+  the state machine, so each beat spawned two — six stimuli inside 33 ms, fusing into one complex and
+  making the run look monomorphic. Only the source's own excitation now advances the chain; the second
+  loop has its own event code and is off by default.
+- `torsades.drift` and `torsades.ringSize` are replaced by `torsades.twistDeg` (degrees of axis per
+  beat) and `torsades.pathSites`. Saved scenarios from earlier versions are converted automatically.
+
+### Torsades: it now depends on the substrate
+- Previously the same generator produced episodes with a normal action-potential duration (60 stimuli
+  in 30 s), so the scenario could not support any claim about long QT. The triggered beat now arises
+  at the site with the longest action potential — in practice the M-cell island — and is **gated** on
+  that action potential still being in phase 3 at the EAD take-off time. On a normal-QT substrate
+  nothing fires (0 stimuli in 30 s, against 20 on the long-QT substrate).
+- Because that cell is itself refractory when the EAD takes off, the wavefront emerges in the nearest
+  recovered tissue, so the first complex starts near but not at the long-QT zone.
+- This is a threshold on APD, not a model of EAD dynamics in tissue, and it is **not** a torsade-risk
+  prediction for a drug. `docs/MECHANISTIC_TDP_PROPOSAL.md` sets out a staged route to a model that
+  could do that properly (cell → 1-D cable → 2-D monodomain sheet), with validation and convergence
+  checks for each stage.
+
+### QRS detection rewritten
+- **A later high-amplitude segment erased earlier detections.** The threshold was 30 % of the spatial
+  slope's maximum over the whole analysed window, so multiplying the last second of an eight-second
+  sinus recording by ten removed all seven complexes detected in the first six seconds. Detection is
+  now causal: running signal and noise peak levels, a 180 ms refractory period, search-back at half
+  the threshold after 1.6 × the running RR, and T-wave discrimination.
+- Measured against the simulator's own wave records across every scenario: **95.5 % sensitivity with
+  4 spurious detections, against 94.1 % and 42 for the rule it replaced.**
+- Two defects introduced during the rewrite and then found by measurement are documented in
+  SCIENTIFIC_LIMITATIONS.md: a median-of-accepted-peaks estimate let one accepted P wave cascade into
+  detecting them all, and an AND-ed T-wave rule missed the peaked T of severe hyperkalaemia.
+- Covered by `tests/ecg/qrsDetection.test.ts`, including the exact reported scenario, low-amplitude
+  and drifting records, search-back, and a test that the new rule is no worse than the old one.
+
+### One shared causal model
+- The review warned against replacing the ECG with an independent synthetic waveform while still
+  showing an incompatible activation pattern. This model does not: every lead remains a linear
+  functional of the same membrane-potential field that drives the heart view, and the continuous
+  rotation is implemented in the tissue rather than as a synthesised waveform.
+  `tests/physiology/causalConsistency.test.ts` asserts it — the tracing is flat whenever the
+  myocardium has been quiet, Einthoven and Goldberger hold at every instant, and each torsades complex
+  is anchored to the activation it came from.
+
+### Housekeeping
+- One browser test ("clicking the ECG inspects the heart state") was intermittently failing before
+  this release: the click is rejected if it lands on part of the sweep the clock has not reached, so
+  it now retries the click. The assertions are unchanged.
+- Dev scripts are now type-checked (`npm run typecheck:dev`, `tsconfig.dev.json`); seven obsolete
+  torsades scripts referencing the removed `siteB`/`cycleB` parameters were deleted.
+- Reproduction scripts for every finding are kept under `scripts/dev/qc/`.
+
 ## [1.6.0] — 2026-10-17
 
 Torsades de pointes reworked after a direct test of whether it can arise on its own; infarction now
