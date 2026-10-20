@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.7.2] — 2026-10-19
+
+Licensing. The project had no licence file, which on a public repository means all rights reserved
+by default.
+
+- Released under **CC BY-NC 4.0** (SPDX `CC-BY-NC-4.0`). `LICENSE` carries the verbatim legal code
+  as published by Creative Commons; `NOTICE` carries the copyright line, the SPDX identifier and the
+  scope.
+- `NOTICE` states what the licence does **not** reach: third-party dependencies, which keep their own
+  permissive licences and remain under them even when inlined into a standalone build; and published
+  literature cited in `docs/REFERENCES.md`, where the calibration values are facts but the papers are
+  their publishers'.
+- The licence is shown in the About tab and summarised in the README.
+- Note for anyone reusing this: Creative Commons advise against CC licences for software, because
+  they do not address source distribution, patent grants or warranty terms the way software licences
+  do. CC BY-NC is used here deliberately for a teaching model; a project wanting the same
+  non-commercial restriction in a software-shaped licence should look at PolyForm Noncommercial or
+  the Prosperity Public License instead.
+
+No change to the simulation.
+
 ## [1.7.1] — 2026-10-18
 
 Delivery fix, after the v1.6.0 and v1.7.0 builds were never copied to the working drive and two

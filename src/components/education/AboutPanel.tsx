@@ -73,6 +73,21 @@ export function AboutPanel({ buildMs }: { buildMs: number }) {
         </ul>
         <p className="note">Full list with DOIs: docs/REFERENCES.md.</p>
       </div>
+      <div className="card">
+        <h4>Licence</h4>
+        <p>
+          CardioSim Lab is released under the{" "}
+          <a href="https://creativecommons.org/licenses/by-nc/4.0/" target="_blank" rel="noreferrer noopener">
+            Creative Commons Attribution-NonCommercial 4.0 International licence
+          </a>{" "}
+          (CC BY-NC 4.0). You may share and adapt it for non-commercial purposes with attribution; commercial use needs separate permission.
+        </p>
+        <p className="note">
+          Third-party libraries bundled into this page (React, three.js, Zustand and others) keep their own permissive licences. Published data used for calibration
+          remains under its publishers' terms; see LICENSE and NOTICE in the repository.
+        </p>
+        <p className="note">Not a medical device. Not for clinical use.</p>
+      </div>
     </>
   );
 }

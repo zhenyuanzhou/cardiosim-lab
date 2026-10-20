@@ -69,3 +69,19 @@ The status of every scenario is in `docs/scenario-registry.json`; limitations ar
 - `docs/VALIDATION.md`: what the tests check
 - `docs/REFERENCES.md`: sources (with DOIs/PMIDs) and which values have none
 - `docs/MECHANISTIC_TDP_PROPOSAL.md`: staged design for a mechanistic (reaction–diffusion) torsades model
+
+## Licence
+
+Creative Commons Attribution-NonCommercial 4.0 International (**CC BY-NC 4.0**).
+SPDX: `CC-BY-NC-4.0`. Full text in [`LICENSE`](LICENSE); scope and exclusions in [`NOTICE`](NOTICE).
+
+You may copy, share, adapt and build on this work for **non-commercial** purposes, provided you
+credit the author, link to the licence and state what you changed. Commercial use requires separate
+permission.
+
+Two things the licence does not reach. Third-party dependencies keep their own (permissive) licences,
+including in a standalone build, which inlines them. And published literature cited in
+`docs/REFERENCES.md` remains under its publishers' terms — the numerical values used for calibration
+are facts, but the papers are not covered by anything here.
+
+Not a medical device and not for clinical use; see `NOTICE` and `SCIENTIFIC_LIMITATIONS.md`.

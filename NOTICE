@@ -1,0 +1,40 @@
+CardioSim Lab
+Copyright (c) 2026 Zhenyuan Zhou
+
+Licensed under the Creative Commons Attribution-NonCommercial 4.0 International
+Licence (CC BY-NC 4.0). The full text is in LICENSE; the canonical copy is at
+https://creativecommons.org/licenses/by-nc/4.0/legalcode
+
+SPDX-License-Identifier: CC-BY-NC-4.0
+
+In short: you may copy, share, adapt and build on this work for NON-COMMERCIAL
+purposes, provided you credit the author, link to the licence and state what you
+changed. Commercial use requires separate permission from the author.
+
+Scope
+-----
+This licence covers the work in this repository: the simulation code, the
+documentation and the generated figures.
+
+It does NOT cover:
+
+  * Third-party dependencies, which keep their own licences. The runtime
+    dependencies (React, three.js, Zustand and the build and test toolchain)
+    are MIT or similarly permissive; see each package for its terms. A
+    standalone build inlines those dependencies, and their licence terms
+    continue to apply to them.
+
+  * Published scientific literature. Where the model is calibrated to or
+    validated against published data, the sources are cited in
+    docs/REFERENCES.md. Numerical values taken from the literature are facts,
+    not expression, but the papers themselves remain under their publishers'
+    terms; nothing here grants rights in them.
+
+  * Clinical use of any kind. See the disclaimer below.
+
+Disclaimer
+----------
+CardioSim Lab is a teaching and research model. It is NOT a clinically validated
+diagnostic system, NOT a medical device, and NOT a patient-specific prediction
+tool. Its limitations are documented in SCIENTIFIC_LIMITATIONS.md and in each
+scenario's own entry. No part of it should be used to make a clinical decision.

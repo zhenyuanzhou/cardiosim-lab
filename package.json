@@ -1,7 +1,8 @@
 {
   "name": "cardiosim-lab",
   "private": true,
-  "version": "1.7.1",
+  "license": "CC-BY-NC-4.0",
+  "version": "1.7.2",
   "description": "CardioSim Lab - interactive cardiac electrophysiology and 12-lead ECG simulator (research education / concept demonstration; not a clinical tool)",
   "type": "module",
   "scripts": {
